@@ -4,23 +4,16 @@ A small site for playing board games with friends remotely. Pick a game from the
 
 Runs entirely on Firebase's free Spark plan: Realtime Database for live rooms, anonymous Auth so each browser keeps its seat after a refresh, and Hosting for the site. Nothing to maintain, and the free plan does not pause from inactivity.
 
-## One-time setup
+## Deploying
 
-1. Go to <https://console.firebase.google.com> and create a project (Google Analytics is not needed).
-2. **Build → Authentication → Get started → Sign-in method** → enable **Anonymous**.
-3. **Build → Realtime Database → Create database** → pick a location → start in **locked mode** (the real rules get deployed in step 6).
-4. **Project settings (gear icon) → Your apps → Web (`</>`)** → register an app. Copy the `firebaseConfig` values into `src/firebaseConfig.ts`. Make sure `databaseURL` is filled in; if it is missing, copy it from the top of the Realtime Database page.
-5. Install and log in:
-   ```sh
-   npm install
-   npx firebase login
-   npx firebase use --add   # pick your project
-   ```
-6. Deploy the site and the database rules:
-   ```sh
-   npm run deploy
-   ```
-   The site is then live at `https://<your-project-id>.web.app`.
+Every push to `main` builds the site and deploys it (plus the database rules) to <https://gamehub-19816.web.app> using GitHub Actions (`.github/workflows/deploy.yml`). You can also run it by hand from the repo's **Actions → Deploy to Firebase → Run workflow**.
+
+One-time setup, all in the browser:
+
+1. Firebase console → **Authentication → Sign-in method** → enable **Anonymous**.
+2. Google Cloud console → **IAM & Admin → Service accounts** (project `gamehub-19816`) → **Create service account** named `github-deploy`, with roles **Firebase Admin** and **API Keys Viewer**.
+3. Open that service account → **Keys → Add key → Create new key → JSON**. A file downloads.
+4. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**. Name it `FIREBASE_SERVICE_ACCOUNT` and paste the whole contents of the JSON file.
 
 ## Local development
 
