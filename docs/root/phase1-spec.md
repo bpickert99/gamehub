@@ -71,9 +71,9 @@ Everything here is enforced by the engine; anything not listed is out of scope f
 2. Score markers to 0.
 3. 2-player: remove the 4 dominance cards. Shuffle; each player draws 3.
 4. Ruins in the 4 "R" slots.
-5. Item supply: 2 bags, 2 boots, 1 crossbow, 1 hammer, 2 swords, 2 teas, 2 coins. *(Icons in 5.1.5 to be confirmed against the art.)*
+5. Item supply: 2 bags, 2 boots, 1 crossbow, 1 hammer, 2 swords, 2 teas, 2 coins (matches the 12 spaces printed on the map).
 6. Dice near map.
-7. Factions set up in order (Marquise is setup order A, Eyrie B; to confirm on faction boards).
+7. Factions set up in order: Marquise first (board back says Setup (A)), then Eyrie (Setup (B)).
 
 ## Marquise de Cat (6)
 
@@ -121,17 +121,20 @@ Everything here is enforced by the engine; anything not listed is out of scope f
 - Commander: Move + Battle; +1 hit as attacker.
 - Despot: Move + Build; +1 VP when removing enemy building/token in battle.
 
-## Data missing from the Law (needed from the art)
+## Component data
 
-The Law defines rules but not the printed data on components. Phase 1 needs:
+The Law defines rules but not the data printed on components. That data was read from the official print-and-play files and lives in `src/games/root/data/`:
 
-1. **Autumn map:** 12 clearings with their suit, building slots, ruin slots, paths, and which 4 are corners (and which corners are diagonal). Rivers and forests for later phases.
-2. **The 54-card base deck:** name, suit, crafting cost, and effect of each card (immediate, item + VP, or persistent), plus the ambush and dominance cards.
-3. **Marquise faction board:** wood cost and VP for each space on the sawmill, workshop and recruiter tracks; which spaces show draw bonuses.
-4. **Eyrie faction board:** VP and draw bonuses for each Roosts track space; Decree column layout.
-5. **Eyrie leader cards** (to confirm the Vizier placements above).
-6. **Score track** (for display only).
+- `autumnMap.ts`: 12 clearings (A–L) with suit, building slots, ruins, corners, and the 18 paths. Checked by drawing the data over the board art: 4 clearings of each suit, 4 ruins (D, E, G, H) as in 5.1.4, corners A/F/J/L with A–L and F–J diagonal. Rivers and forests come in later phases.
+- `baseDeck.ts`: all 54 cards with suit, crafting cost, and effect. Counts match the Law: 5 ambush cards (2 bird, 1 each other suit, 2.1.2) and 4 dominance cards.
+- `factions.ts`: Marquise building tracks (wood cost 0/1/2/3/3/4; sawmill VP 0/1/2/3/4/5; workshop VP 0/2/2/3/4/5; recruiter VP 0/1/2/3/3/4 with draw bonuses on the 3rd and 5th spaces) and the Eyrie Roosts track (VP 0/1/2/3/4/4/5 with draw bonuses on the 3rd and 6th spaces), plus the leaders' Vizier columns.
+- The item supply printed on the map (12 spaces) matches 5.1.5: 2 bags, 2 boots, 1 crossbow, 1 hammer, 2 swords, 2 teas, 2 coins.
 
-## Open questions for you
+## Where the print-and-play differs from the Law
 
-- Crafted card effects: the Law says to follow card text (1.1.1). Phase 1 implements every card in the base deck; if any card's text is unclear, I'll list it for you to rule on before coding it.
+The print-and-play is an older printing than the Law (August 2025). Where faction-board wording differs, the engine follows the Law, which is the newer rule:
+
+- **Field Hospitals.** Board: "Whenever a Marquise warrior is removed, you may spend a card..." Law 6.2.3: whenever *any number* of Marquise warriors are removed *from a clearing*, one matching card places *those warriors* at the keep. The engine uses the Law (one card per clearing per removal).
+- **Eyrie A New Roost.** Board: clearing with the "fewest total pieces." Law 7.4.3: clearing with the *fewest warriors* where all those pieces can be placed. The engine uses the Law.
+
+Card text: the Law says card text overrides the Law (1.1.1). The engine uses the card text as printed in the print-and-play. If your physical copy is a newer printing with different card wording, the official card library (cards.ledergames.com) is the reference to check against.
