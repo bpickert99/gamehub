@@ -1,28 +1,30 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GAMES, type Game } from '../games/catalogue'
+import GameBox from './GameBox'
 import { createRoom, normalizeCode } from '../rooms'
 import { loadName, MAX_NAME_LENGTH, saveName } from '../playerName'
+
+const PER_SHELF = 3
 
 export default function Hub({ uid }: { uid: string }) {
   const navigate = useNavigate()
   const [name, setName] = useState(loadName)
   const [code, setCode] = useState('')
-  const [creating, setCreating] = useState<string | null>(null)
+  const [chosen, setChosen] = useState<Game | null>(null)
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
   const trimmedName = name.trim()
 
   async function host(game: Game) {
     setError(null)
-    setCreating(game.id)
+    setCreating(true)
     saveName(trimmedName)
     try {
-      const roomCode = await createRoom(game, uid, trimmedName)
-      navigate(`/room/${roomCode}`)
+      navigate(`/room/${await createRoom(game, uid, trimmedName)}`)
     } catch (e) {
       setError((e as Error).message)
-      setCreating(null)
+      setCreating(false)
     }
   }
 
@@ -32,55 +34,59 @@ export default function Hub({ uid }: { uid: string }) {
     navigate(`/room/${normalizeCode(code)}`)
   }
 
+  const shelves: Game[][] = []
+  for (let i = 0; i < GAMES.length; i += PER_SHELF) shelves.push(GAMES.slice(i, i + PER_SHELF))
+
   return (
-    <div className="hub">
-      <section className="panel">
+    <div className="den">
+      <section className="den-plaque">
         <label className="field">
           <span>Your name</span>
-          <input
-            value={name}
-            maxLength={MAX_NAME_LENGTH}
-            placeholder="e.g. Sam"
-            onChange={(e) => setName(e.target.value)}
-          />
+          <input value={name} maxLength={MAX_NAME_LENGTH} placeholder="e.g. Sam" onChange={(e) => setName(e.target.value)} />
         </label>
         <form className="join" onSubmit={join}>
           <label className="field">
             <span>Have a code?</span>
-            <input
-              className="code-input"
-              value={code}
-              maxLength={4}
-              placeholder="ABCD"
-              onChange={(e) => setCode(normalizeCode(e.target.value))}
-            />
+            <input className="code-input" value={code} maxLength={4} placeholder="ABCD" onChange={(e) => setCode(normalizeCode(e.target.value))} />
           </label>
-          <button type="submit" disabled={code.length !== 4}>
-            Join game
-          </button>
+          <button type="submit" disabled={code.length !== 4}>Join game</button>
         </form>
-        {error && <p className="error">{error}</p>}
       </section>
 
-      <h2>Start a game</h2>
-      {!trimmedName && <p className="muted">Enter your name to host a game.</p>}
-      <div className="catalogue">
-        {GAMES.map((game) => (
-          <article key={game.id} className="card">
-            {game.image ? <img className="card-image" src={game.image} alt="" /> : <div className="card-emoji">{game.emoji}</div>}
-            <h3>{game.name}</h3>
-            <p>{game.description}</p>
-            <p className="muted">
-              {game.minPlayers === game.maxPlayers
-                ? `${game.minPlayers} players`
-                : `${game.minPlayers}–${game.maxPlayers} players`}
-            </p>
-            <button disabled={!trimmedName || creating !== null} onClick={() => host(game)}>
-              {creating === game.id ? 'Creating…' : 'Host this game'}
-            </button>
-          </article>
+      <div className="bookcase">
+        {shelves.map((row, i) => (
+          <div key={i} className="shelf">
+            <div className="shelf-games">
+              {row.map((game) => (
+                <GameBox key={game.id} game={game} onOpen={() => setChosen(game)} />
+              ))}
+            </div>
+            <div className="shelf-plank" />
+          </div>
         ))}
       </div>
+
+      {chosen && (
+        <div className="den-modal" onClick={() => setChosen(null)}>
+          <div className="den-detail" onClick={(e) => e.stopPropagation()}>
+            {chosen.logo ? <img className="den-logo" src={chosen.logo} alt={chosen.name} /> : <h2>{chosen.name}</h2>}
+            <p className="den-tagline">{chosen.tagline}</p>
+            <p className="muted">
+              {chosen.minPlayers === chosen.maxPlayers ? `${chosen.minPlayers} players` : `${chosen.minPlayers}–${chosen.maxPlayers} players`}
+            </p>
+            {chosen.playable ? (
+              <>
+                {!trimmedName && <p className="muted">Enter your name above to host.</p>}
+                <button disabled={!trimmedName || creating} onClick={() => host(chosen)}>{creating ? 'Setting up the table…' : 'Host this game'}</button>
+              </>
+            ) : (
+              <p className="den-soon">Coming soon — next on the build list.</p>
+            )}
+            {error && <p className="error">{error}</p>}
+            <button className="link-button den-close" onClick={() => setChosen(null)}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

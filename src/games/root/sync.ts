@@ -2,6 +2,7 @@ import { onValue, ref, runTransaction } from 'firebase/database'
 import { db } from '../../firebase'
 import { applyAction, createGame } from './engine/game'
 import type { Action, Faction, GameState } from './engine/types'
+import { chosenSeats, type RootOptions } from './options'
 
 // Stored as a JSON string: the Realtime Database drops empty arrays and nulls, which the state relies on.
 export type RootGameDoc = {
@@ -9,11 +10,14 @@ export type RootGameDoc = {
   seats: Record<string, Faction>
 }
 
-// Assign factions to players in any way (5.1.1): here, at random.
-export function newRootGame(playerIds: string[]): RootGameDoc {
+// Factions are assigned as chosen in the lobby, or at random (5.1.1).
+export function newRootGame(playerIds: string[], options: RootOptions): RootGameDoc {
   if (playerIds.length !== 2) throw new Error('Root needs exactly two players for Marquise vs Eyrie.')
+  if (options.map !== 'autumn' || options.deck !== 'base') throw new Error('Only the Autumn map and base deck are available so far.')
+  const chosen = options.factions ? chosenSeats(options, playerIds) : null
+  if (options.factions && !chosen) throw new Error('Give each player a different faction, or choose random.')
   const flip = Math.random() < 0.5
-  const seats: Record<string, Faction> = {
+  const seats: Record<string, Faction> = chosen ?? {
     [playerIds[0]]: flip ? 'marquise' : 'eyrie',
     [playerIds[1]]: flip ? 'eyrie' : 'marquise',
   }

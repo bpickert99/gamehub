@@ -167,11 +167,20 @@ export function tile(art: string, size: number, height: number, side: string): T
 }
 
 // Round cardboard token (wood) with its art on top.
+// Round cardboard token (wood) with its art upright on top. Built like `tile` (a shape in 0..1
+// extruded and laid flat) because CylinderGeometry maps cap textures a quarter turn sideways.
 export function disc(art: string, radius: number, height: number, side: string): THREE.Mesh {
-  const geo = cached(`disc`, () => new THREE.CylinderGeometry(1, 1, 1, 40))
+  const geo = cached('disc', () => {
+    const shape = new THREE.Shape()
+    shape.absarc(0.5, 0.5, 0.5, 0, Math.PI * 2, false)
+    const g = new THREE.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false, curveSegments: 40 })
+    g.translate(-0.5, -0.5, 0)
+    return g
+  })
   const top = cached(`disc-top:${art}`, () => new THREE.MeshStandardMaterial({ map: imageTexture(art), roughness: 0.7 }))
-  const mesh = new THREE.Mesh(geo, [woodMaterial(side), top, woodMaterial(side)])
-  mesh.scale.set(radius, height, radius)
+  const mesh = new THREE.Mesh(geo, [top, woodMaterial(side)])
+  mesh.rotation.x = -Math.PI / 2
+  mesh.scale.set(radius * 2, radius * 2, height)
   mesh.castShadow = true
   mesh.receiveShadow = true
   return mesh

@@ -6,6 +6,7 @@ import { BOARD, ITEM_SPACES, SLOTS } from '../data/autumnLayout'
 import type { Item } from '../data/types'
 import { CLEARING_IDS, ruler } from '../engine/core'
 import type { Faction, GameState } from '../engine/types'
+import type { InfoKey } from '../data/rulesInfo'
 import { pieceImage, suitIcon } from './assets'
 import { BH, BOARD_TOP, BW, FACTION_COLOR, badge, disc, imageTexture, keep, meeple, ringTexture, suitBanner, tile } from './pieces3d'
 
@@ -24,6 +25,10 @@ type Props = {
   selected: ClearingId | null
   onClearing: (c: ClearingId) => void
   popover: { clearing: ClearingId; content: ReactNode } | null
+  onInfo: (key: InfoKey) => void
+  shadows: boolean
+  // Screen space covered by the overlays at the top and bottom, kept clear when framing the board.
+  frame: { top: number; bottom: number }
 }
 
 type Scene = {
@@ -33,11 +38,14 @@ type Scene = {
   scene: THREE.Scene
   pieces: THREE.Group
   rings: THREE.Group
+  resize: () => void
 }
 
 const CLEARING_RADIUS = 1.45
 
-export default function Board3D({ state, highlight, selected, onClearing, popover }: Props) {
+export default function Board3D({ state, highlight, selected, onClearing, popover, onInfo, shadows, frame }: Props) {
+  const frameRef = useRef(frame)
+  frameRef.current = frame
   // The camera controls own `surface`; popovers and buttons live outside it so the controls never
   // capture their pointer events.
   const surface = useRef<HTMLDivElement>(null)
@@ -45,6 +53,8 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
   // Screen positions of each clearing (centre + radius), refreshed every frame for the click targets.
   const [screen, setScreen] = useState<Record<string, { x: number; y: number; r: number }>>({})
   const press = useRef<{ x: number; y: number } | null>(null)
+  // The piece under the pointer, for the rules "i" button.
+  const [hover, setHover] = useState<{ key: InfoKey; x: number; y: number } | null>(null)
 
   // ---------- scene setup, once ----------
   useEffect(() => {
@@ -115,10 +125,10 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
 
     // The overlays cover the top (players, banner) and bottom (hand, action bar) of the screen, so the
     // view is centred on the free area between them.
-    const insets = (width: number) => (width < 760 ? { top: 110, bottom: 210 } : { top: 70, bottom: 160 })
+    const insets = () => frameRef.current
     const resize = () => {
       const { width, height } = el.getBoundingClientRect()
-      const pad = insets(width)
+      const pad = insets()
       renderer.setSize(width, height)
       camera.aspect = width / height
       camera.setViewOffset(width, height, 0, (pad.bottom - pad.top) / 2, width, height)
@@ -127,7 +137,7 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     resize()
     // Start over the whole board, tilted like the app (closer on phones).
     const { width, height } = el.getBoundingClientRect()
-    const pad = insets(width)
+    const pad = insets()
     const free = (height - pad.top - pad.bottom) / height
     const fitDistance = (BH / 2 + 1.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / free / (width < 760 ? 1.9 : 1)
     const polar = 0.62
@@ -136,7 +146,7 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     controls.update()
 
     window.addEventListener('resize', resize)
-    three.current = { renderer, camera, controls, scene, pieces, rings }
+    three.current = { renderer, camera, controls, scene, pieces, rings, resize }
 
     let frame = 0
     const v = new THREE.Vector3()
@@ -173,6 +183,18 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
       three.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const t = three.current
+    if (!t) return
+    t.renderer.shadowMap.enabled = shadows
+    t.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined
+      for (const mat of Array.isArray(m) ? m : m ? [m] : []) mat.needsUpdate = true
+    })
+  }, [shadows])
+
+  useEffect(() => three.current?.resize(), [frame.top, frame.bottom])
 
   // ---------- pieces, rebuilt whenever the game changes ----------
   useEffect(() => {
@@ -231,10 +253,30 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     t.camera.position.copy(t.controls.target).add(dir.setLength(len))
   }
 
+  const raycaster = useRef(new THREE.Raycaster())
+  function onPointerMove(e: React.PointerEvent) {
+    const t = three.current
+    if (!t || e.buttons !== 0) return
+    const rect = surface.current!.getBoundingClientRect()
+    const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1)
+    raycaster.current.setFromCamera(ndc, t.camera)
+    for (const hit of raycaster.current.intersectObject(t.pieces, true)) {
+      let o: THREE.Object3D | null = hit.object
+      while (o && !o.userData.info) o = o.parent
+      if (!o) continue
+      const key = o.userData.info as InfoKey
+      if (hover?.key !== key || Math.hypot(hover.x - (e.clientX - rect.left), hover.y - (e.clientY - rect.top)) > 40) {
+        setHover({ key, x: e.clientX - rect.left, y: e.clientY - rect.top })
+      }
+      return
+    }
+    if (hover) setHover(null)
+  }
+
   const pop = popover && screen[popover.clearing]
   return (
     <div className="rb-frame rb-3d">
-      <div ref={surface} className="rb-surface" onPointerDownCapture={(e) => (press.current = { x: e.clientX, y: e.clientY })} onClick={onClick}>
+      <div ref={surface} className="rb-surface" onPointerDownCapture={(e) => (press.current = { x: e.clientX, y: e.clientY })} onClick={onClick} onPointerMove={onPointerMove}>
         {CLEARING_IDS.map((c) => {
           const s = screen[c]
           if (!s) return null
@@ -253,6 +295,11 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
         <div className="rb-popover-anchor" style={{ left: pop.x, top: pop.y }}>
           <div className="rb-popover">{popover.content}</div>
         </div>
+      )}
+      {hover && (
+        <button className="rb-info" style={{ left: hover.x + 14, top: hover.y - 34 }} onClick={() => onInfo(hover.key)} aria-label="Rules for this piece">
+          i
+        </button>
       )}
       <div className="rb-zoom">
         <button onClick={zoom(0.75)} aria-label="Zoom in">+</button>
@@ -274,6 +321,7 @@ function buildPieces(state: GameState, group: THREE.Group) {
     left[sp.item]! -= 1
     const m = tile(pieceImage(sp.item), 0.56, 0.06, '#d8d0bf')
     m.position.copy(world(sp))
+    m.userData.info = 'item'
     group.add(m)
   }
 
@@ -286,10 +334,12 @@ function buildPieces(state: GameState, group: THREE.Group) {
     if (cs.ruins > 0 && layout.ruinSlot !== null) {
       const ruin = tile(pieceImage('ruin'), SLOT_SIZE, 0.24, '#8c8578')
       ruin.position.copy(world(layout.slots[layout.ruinSlot]))
+      ruin.userData.info = 'ruin'
       group.add(ruin)
     }
     cs.buildings.forEach((b, i) => {
       const m = tile(pieceImage(b.kind), SLOT_SIZE, 0.2, FACTION_COLOR[b.faction])
+      m.userData.info = b.kind
       m.position.copy(world(layout.slots[free[i]]))
       group.add(m)
     })
@@ -312,6 +362,7 @@ function buildPieces(state: GameState, group: THREE.Group) {
       const offsets = [[0, 0], [-0.42, -0.34], [0.42, -0.34]].slice(0, Math.min(n, 3))
       for (const [dx, dz] of offsets) {
         const m = meeple(f)
+        m.userData.info = `warrior-${f}`
         m.position.copy(base).add(new THREE.Vector3(dx, 0, dz))
         group.add(m)
       }
@@ -321,6 +372,7 @@ function buildPieces(state: GameState, group: THREE.Group) {
     })
     if (hasKeep) {
       const k = keep()
+      k.userData.info = 'keep'
       k.position.copy(spots.shift()!)
       group.add(k)
     }
@@ -329,7 +381,8 @@ function buildPieces(state: GameState, group: THREE.Group) {
       const base = spots.shift()!
       for (let i = 0; i < wood; i++) {
         const d = disc(pieceImage('wood'), 0.3, 0.09, '#b76a35')
-        d.position.copy(base).add(new THREE.Vector3((Math.floor(i / 3) - 0.5) * 0.62, 0.045 + (i % 3) * 0.1, 0))
+        d.userData.info = 'wood'
+        d.position.copy(base).add(new THREE.Vector3((Math.floor(i / 3) - 0.5) * 0.62, (i % 3) * 0.1, 0))
         group.add(d)
       }
     }

@@ -7,6 +7,7 @@ import {
   leaveRoom,
   markDisconnected,
   normalizeCode,
+  setRootOptions,
   startGame,
   subscribeRoom,
   trackPresence,
@@ -15,6 +16,8 @@ import {
 } from '../rooms'
 import { loadName, MAX_NAME_LENGTH, saveName } from '../playerName'
 import RootGame from '../games/root/ui/RootGame'
+import RootSetup, { setupReady } from '../games/root/ui/RootSetup'
+import { DEFAULT_OPTIONS } from '../games/root/options'
 
 type Seat = { uid: string } & Player
 
@@ -95,7 +98,7 @@ function JoinForm({ code, uid, room }: { code: string; uid: string; room: Room }
   return (
     <div className="panel">
       <h2>
-        {game.emoji} {game.name} · <span className="code">{code}</span>
+        {game.name} · <span className="code">{code}</span>
       </h2>
       <p className="muted">
         Hosted by {room.players?.[room.hostId]?.name ?? 'someone'} · {seats.length}/{room.maxPlayers} players
@@ -123,6 +126,8 @@ function Lobby({ code, uid, room }: { code: string; uid: string; room: Room }) {
   const seats = sortedSeats(room)
   const navigate = useNavigate()
   const isHost = room.hostId === uid
+  const options = room.options ?? DEFAULT_OPTIONS
+  const ready = seats.length >= room.minPlayers && (room.gameId !== 'root' || setupReady(options, seats.map((s) => s.uid)))
   const enough = seats.length >= room.minPlayers
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -145,7 +150,7 @@ function Lobby({ code, uid, room }: { code: string; uid: string; room: Room }) {
   return (
     <div className="panel lobby">
       <h2>
-        {game.emoji} {game.name}
+        {game.name}
       </h2>
       <div className="share">
         <div>
@@ -178,9 +183,18 @@ function Lobby({ code, uid, room }: { code: string; uid: string; room: Room }) {
         ))}
       </ul>
 
+      {room.gameId === 'root' && (
+        <RootSetup
+          options={options}
+          players={seats.map((s) => ({ uid: s.uid, name: s.name }))}
+          isHost={isHost}
+          onChange={(o) => run(() => setRootOptions(code, o))}
+        />
+      )}
+
       {isHost ? (
         <>
-          <button disabled={!enough} onClick={() => run(() => startGame(code, room))}>
+          <button disabled={!ready} onClick={() => run(() => startGame(code, room))}>
             Start game
           </button>
           {!enough && (
@@ -212,7 +226,7 @@ function GameScreen({ room }: { room: Room }) {
   return (
     <div className="panel">
       <h2>
-        {game.emoji} {game.name}
+        {game.name}
       </h2>
       <p>The game has started! (This game isn't built yet.)</p>
       <p className="muted">Playing: {sortedSeats(room).map((s) => s.name).join(', ')}</p>

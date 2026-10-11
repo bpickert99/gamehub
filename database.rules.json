@@ -64,6 +64,24 @@
             ".validate": false
           }
         },
+        "options": {
+          ".write": "auth.uid === data.parent().child('hostId').val() && data.parent().child('status').val() === 'lobby'",
+          ".validate": "newData.hasChildren(['map', 'deck'])",
+          "map": {
+            ".validate": "newData.isString()"
+          },
+          "deck": {
+            ".validate": "newData.isString()"
+          },
+          "factions": {
+            "$uid": {
+              ".validate": "newData.val() === 'marquise' || newData.val() === 'eyrie'"
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
         "$other": {
           ".validate": false
         }

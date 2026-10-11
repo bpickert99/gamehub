@@ -13,7 +13,10 @@ import { CARD_BACK, VIZIER_IMAGE, cardImage, factionIcon, factionPortrait, leade
 import Board from './Board3D'
 import { NONE, SETUP_ORDER, clickClearing, highlighted, verb, type Click, type Mode, type Verb } from './flow'
 import { STEP_NAME, actionLabel, waitingFor } from './labels'
-import { CardImage, FactionPanel, Log } from './Panels'
+import { CardImage, Log } from './Panels'
+import FactionBoard from './FactionBoard'
+import { PIECE_INFO, type InfoKey } from '../data/rulesInfo'
+import { TEXT_SIZES, loadSettings, saveSettings, type Settings } from './settings'
 import './root.css'
 
 export default function RootGame({ code, uid }: { code: string; uid: string }) {
@@ -41,6 +44,14 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
   const setMode = (mode: Mode, pop: Popover | null = null) => setLocal({ version, mode, popover: pop })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [viewing, setViewing] = useState<CardId | null>(null)
+  const [info, setInfo] = useState<InfoKey | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settings, setSettings] = useState<Settings>(loadSettings)
+  const changeSettings = (next: Settings) => {
+    setSettings(next)
+    saveSettings(next)
+  }
 
   const myMove = actor(state) === me
   const options = useMemo(() => (myMove ? legalActions(state).map((o) => o.action) : []), [state, myMove])
@@ -52,6 +63,7 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
     setError(null)
     setBusy(true)
     setMode(NONE)
+    setViewing(null)
     try {
       applyAction(state, me, action) // validate locally for an immediate, readable error
       await sendAction(code, me, action)
@@ -76,12 +88,15 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
 
   const them = opponent(state, me)
   return (
-    <div className={`rg-screen rg-${me} ${busy ? 'busy' : ''}`}>
+    <div className={`rg-screen rg-${me} ${busy ? 'busy' : ''}`} style={{ ['--hud' as string]: settings.textSize }}>
       <Board
         state={state}
         highlight={highlight}
         selected={selectedClearing(mode)}
         onClearing={onClearing}
+        onInfo={setInfo}
+        shadows={settings.shadows}
+        frame={{ top: 80 * settings.textSize, bottom: (me === 'eyrie' ? 200 : 170) * settings.textSize }}
         popover={popover && {
           clearing: popover.clearing,
           content: <PopoverMenu popover={popover} onAct={act} onRun={(cl) => run(cl, popover.clearing)} onClose={() => setMode(mode)} />,
@@ -100,6 +115,7 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
 
       <div className="rg-top-right">
         <button className="rg-icon" onClick={() => setSheet('log')} title="Game log">📜</button>
+        <button className="rg-icon" onClick={() => setSettingsOpen(true)} title="Settings">⚙</button>
         <Link className="rg-icon" to="/" title="Back to the hub">✕</Link>
       </div>
 
@@ -108,13 +124,15 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
         {error && <span className="rg-error">{error}</span>}
       </div>
 
+      <div className="rg-bottom">
       <MyCorner state={state} me={me} onOpen={() => setSheet(me)} />
 
-      <HandFan state={state} me={me} myMove={myMove} mode={mode} options={options} onMode={(m) => setMode(m)} onAct={act} />
+      <HandFan state={state} me={me} myMove={myMove} mode={mode} options={options} onMode={(m) => setMode(m)} onAct={act} onView={setViewing} />
 
       <ActionBar state={state} me={me} myMove={myMove} mode={mode} options={options} onMode={(m) => setMode(m)} onAct={act} />
+      </div>
 
-      {myMove && prompt && <PromptDialog state={state} options={options} onAct={act} />}
+      {myMove && prompt && <PromptDialog state={state} options={options} onAct={act} onView={setViewing} />}
       {state.turn.peek && state.current === me && !prompt && <PeekDialog key={version} cards={state.turn.peek} them={them} />}
       {state.winner && (
         <div className="rg-modal">
@@ -136,11 +154,16 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
                 <Log lines={state.log} />
               </>
             ) : (
-              <FactionPanel state={state} faction={sheet} mine={sheet === me} />
+              <FactionBoard state={state} faction={sheet} mine={sheet === me} onZoom={setViewing} />
             )}
           </div>
         </div>
       )}
+      {viewing !== null && (
+        <CardViewer id={viewing} state={state} me={me} options={options} onAct={act} onMode={(m) => setMode(m)} onClose={() => setViewing(null)} />
+      )}
+      {info && <InfoDialog info={info} onClose={() => setInfo(null)} />}
+      {settingsOpen && <SettingsPanel settings={settings} onChange={changeSettings} onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }
@@ -264,11 +287,10 @@ function MyCorner({ state, me, onOpen }: { state: GameState; me: Faction; onOpen
 
 type BarProps = { state: GameState; me: Faction; myMove: boolean; mode: Mode; options: Action[]; onMode: (m: Mode) => void; onAct: (a: Action) => void }
 
-function HandFan({ state, me, myMove, mode, options, onMode, onAct }: BarProps) {
+function HandFan({ state, me, myMove, mode, onMode, onView }: BarProps & { onView: (id: CardId) => void }) {
   const hand = state.hands[me]
-  const [menu, setMenu] = useState<CardId | null>(null)
-  const open = menu !== null && hand.includes(menu) && mode.kind !== 'cards' && mode.kind !== 'decree-add' ? menu : null
-  const selected = mode.kind === 'cards' ? mode.cards : mode.kind === 'decree-add' ? [...mode.staged.map((s) => s.card), ...(mode.card !== null ? [mode.card] : [])] : open !== null ? [open] : []
+  const selecting = myMove && (mode.kind === 'cards' || mode.kind === 'decree-add')
+  const selected = mode.kind === 'cards' ? mode.cards : mode.kind === 'decree-add' ? [...mode.staged.map((s) => s.card), ...(mode.card !== null ? [mode.card] : [])] : []
 
   function click(id: CardId) {
     if (mode.kind === 'cards' && myMove) {
@@ -283,30 +305,88 @@ function HandFan({ state, me, myMove, mode, options, onMode, onAct }: BarProps) 
       if (mode.card === null && mode.staged.length === 1 && card(id).suit === 'bird' && card(mode.staged[0].card).suit === 'bird') return
       return onMode({ ...mode, card: mode.card === id ? null : id })
     }
-    setMenu(open === id ? null : id)
+    onView(id)
   }
 
-  const cardActions = open !== null ? options.filter((a) => 'card' in a && a.card === open && ['craft', 'spend-bird', 'overwork'].includes(a.type)) : []
-  const has = (t: string) => cardActions.some((a) => a.type === t)
   return (
     <div className="rg-hand" style={{ ['--n' as string]: hand.length }}>
       {hand.map((id, i) => (
-        <button key={id} className={`rg-hand-card ${selected.includes(id) ? 'selected' : ''}`} style={{ ['--i' as string]: i }} onClick={() => click(id)} title={card(id).name}>
-          <img src={cardImage(id)} alt={card(id).name} />
-        </button>
-      ))}
-      {open !== null && (
-        <div className="rg-card-menu">
-          <img src={cardImage(open)} alt={card(open).name} />
-          <div className="rg-card-menu-actions">
-            {cardActions.length === 0 && <p>Nothing to do with this card right now.</p>}
-            {has('craft') && <button onClick={() => { setMenu(null); onAct({ type: 'craft', card: open }) }}>Craft</button>}
-            {has('spend-bird') && <button onClick={() => { setMenu(null); onAct({ type: 'spend-bird', card: open }) }}>Spend for an extra action</button>}
-            {has('overwork') && <button onClick={() => { setMenu(null); onMode(verb('overwork', open)) }}>Overwork with it</button>}
-            <button className="rg-plain" onClick={() => setMenu(null)}>Close</button>
-          </div>
+        <div key={id} className={`rg-hand-card ${selected.includes(id) ? 'selected' : ''}`} style={{ ['--i' as string]: i }}>
+          <button className="rg-hand-face" onClick={() => click(id)} title={card(id).name}>
+            <img src={cardImage(id)} alt={card(id).name} />
+          </button>
+          {selecting && <button className="rg-hand-view" onClick={() => onView(id)} title="View card">🔍</button>}
         </div>
-      )}
+      ))}
+    </div>
+  )
+}
+
+// A card shown large in the middle of the screen, with what you can do with it.
+function CardViewer({ id, state, me, options, onAct, onMode, onClose }: { id: CardId; state: GameState; me: Faction; options: Action[]; onAct: (a: Action) => void; onMode: (m: Mode) => void; onClose: () => void }) {
+  const inHand = state.hands[me].includes(id)
+  const actions = inHand ? options.filter((a) => 'card' in a && a.card === id && ['craft', 'spend-bird', 'overwork'].includes(a.type)) : []
+  const has = (t: string) => actions.some((a) => a.type === t)
+  const c = card(id)
+  return (
+    <div className="rg-modal" onClick={onClose}>
+      <div className="rg-viewer" onClick={(e) => e.stopPropagation()}>
+        <img className="rg-viewer-card" src={cardImage(id)} alt={c.name} />
+        <div className="rg-viewer-side">
+          <h3>{c.name}</h3>
+          {inHand && actions.length === 0 && <p>Nothing to do with this card right now.</p>}
+          {has('craft') && <button onClick={() => onAct({ type: 'craft', card: id })}>Craft</button>}
+          {has('spend-bird') && <button onClick={() => onAct({ type: 'spend-bird', card: id })}>Spend for an extra action</button>}
+          {has('overwork') && <button onClick={() => { onClose(); onMode(verb('overwork', id)) }}>Overwork with it</button>}
+          <button className="rg-plain" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function InfoDialog({ info, onClose }: { info: InfoKey; onClose: () => void }) {
+  const piece = PIECE_INFO[info]
+  return (
+    <div className="rg-modal" onClick={onClose}>
+      <div className="rg-dialog rg-info" onClick={(e) => e.stopPropagation()}>
+        <h3>{piece.name}</h3>
+        {piece.rules.map((r) => (
+          <section key={r.section}>
+            <h4><span>{r.section}</span> {r.title}</h4>
+            <p>{r.text}</p>
+          </section>
+        ))}
+        <p className="rg-info-source">From The Law of Root</p>
+        <button className="rg-plain" onClick={onClose}>Close</button>
+      </div>
+    </div>
+  )
+}
+
+function SettingsPanel({ settings, onChange, onClose }: { settings: Settings; onChange: (s: Settings) => void; onClose: () => void }) {
+  return (
+    <div className="rg-modal" onClick={onClose}>
+      <div className="rg-dialog rg-settings" onClick={(e) => e.stopPropagation()}>
+        <h3>Settings</h3>
+        <label>
+          <span>Text and interface size</span>
+          <div className="rg-choice">
+            {TEXT_SIZES.map((t) => (
+              <button key={t.value} className={settings.textSize === t.value ? 'on' : ''} onClick={() => onChange({ ...settings, textSize: t.value })}>{t.label}</button>
+            ))}
+          </div>
+        </label>
+        <label>
+          <span>Shadows</span>
+          <div className="rg-choice">
+            {[true, false].map((v) => (
+              <button key={String(v)} className={settings.shadows === v ? 'on' : ''} onClick={() => onChange({ ...settings, shadows: v })}>{v ? 'On' : 'Off (faster)'}</button>
+            ))}
+          </div>
+        </label>
+        <button className="rg-plain" onClick={onClose}>Done</button>
+      </div>
     </div>
   )
 }
@@ -314,7 +394,7 @@ function HandFan({ state, me, myMove, mode, options, onMode, onAct }: BarProps) 
 // ---------- bottom-right: actions ----------
 
 const VERB_ICON: Record<Verb, string> = {
-  battle: pieceImage('sword'), march: pieceImage('boot'), recruit: factionIcon('marquise'), build: pieceImage('sawmill'), overwork: pieceImage('wood'),
+  battle: pieceImage('sword'), march: pieceImage('boot'), recruit: pieceImage('recruiter'), build: pieceImage('hammer'), overwork: pieceImage('wood'),
 }
 const COLUMN_ICON: Record<DecreeColumn, string> = {
   recruit: factionIcon('eyrie'), move: pieceImage('boot'), battle: pieceImage('sword'), build: pieceImage('roost'),
@@ -456,7 +536,7 @@ function PopoverMenu({ popover, onAct, onRun, onClose }: { popover: Popover; onA
   )
 }
 
-function PromptDialog({ state, options, onAct }: { state: GameState; options: Action[]; onAct: (a: Action) => void }) {
+function PromptDialog({ state, options, onAct, onView }: { state: GameState; options: Action[]; onAct: (a: Action) => void; onView: (id: CardId) => void }) {
   const p = state.pending[0]
   const skip = options.find((a) => a.type === 'skip')
   const no = skip && <button className="rg-plain" onClick={() => onAct(skip)}>No</button>
@@ -489,7 +569,10 @@ function PromptDialog({ state, options, onAct }: { state: GameState; options: Ac
         <>
           <div className="rg-dialog-cards">
             {options.flatMap((a) => ('card' in a ? [a] : [])).map((a) => (
-              <button key={a.card} className="rg-dialog-card" onClick={() => onAct(a)}><img src={cardImage(a.card)} alt={card(a.card).name} /></button>
+              <div key={a.card} className="rg-dialog-card-wrap">
+                <button className="rg-dialog-card" onClick={() => onAct(a)}><img src={cardImage(a.card)} alt={card(a.card).name} /></button>
+                <button className="rg-plain" onClick={() => onView(a.card)}>View</button>
+              </div>
             ))}
           </div>
           {no}

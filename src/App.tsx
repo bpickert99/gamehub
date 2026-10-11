@@ -23,7 +23,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <Link to="/" className="logo">
-          🎲 Game Hub
+          Game Hub
         </Link>
       </header>
       <main>

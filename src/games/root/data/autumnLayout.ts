@@ -1,8 +1,9 @@
 // Generated from the print-and-play Autumn board (board.webp, 2607x2225). Coordinates are fractions of width/height.
+import { assetUrl } from '../../../assetUrl'
 import type { ClearingId } from './autumnMap'
 import type { Item } from './types'
 
-export const BOARD = { image: '/root/board.webp', width: 2607, height: 2225 }
+export const BOARD = { image: assetUrl('/root/board.webp'), width: 2607, height: 2225 }
 
 type Point = { x: number; y: number }
 
