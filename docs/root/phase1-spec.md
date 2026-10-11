@@ -138,3 +138,19 @@ The print-and-play is an older printing than the Law (August 2025). Where factio
 - **Eyrie A New Roost.** Board: clearing with the "fewest total pieces." Law 7.4.3: clearing with the *fewest warriors* where all those pieces can be placed. The engine uses the Law.
 
 Card text: the Law says card text overrides the Law (1.1.1). The engine uses the card text as printed in the print-and-play. If your physical copy is a newer printing with different card wording, the official card library (cards.ledergames.com) is the reference to check against.
+
+## Interpretations (where the Law is silent)
+
+These are the engine's calls on points the Law does not spell out. Each is easy to change if you rule otherwise.
+
+- **Battle dice:** each die rolls 0, 1, 2 or 3 with equal chance (the 12-sided dice show each number three times).
+- **Score floor:** losing points (Eyrie Turmoil) stops at 0, since the score track starts at 0.
+- **Charismatic with one warrior left:** the Eyrie place the one warrior (1.5.4), but the action was not fully taken, so they fall into Turmoil (7.7).
+- **"In Birdsong, may…" / "Once in Daylight, may…" cards:** Stand and Deliver!, Tax Collector and Codebreakers can each be used once per turn per card. Royal Claim is discarded when used.
+- **A New Roost (7.4.3):** "fewest warriors" counts all warriors in the clearing; a candidate clearing needs an open slot and cannot be the keep's clearing.
+- **Turmoil leader choice:** the deposed leader stays face down; if no leaders are face up, all four are flipped face up (7.7.3.I), including the one just deposed.
+
+## Test evidence
+
+- `src/games/root/engine/*.test.ts`: one test per rule, named with its Law section.
+- `simulation.test.ts`: 40 complete random games played only through the legal-action generator, checking after every action that warriors, wood, buildings and cards are conserved. All 40 games reach a winner (about 46 turns on average) and exercise battles, ambushes and foils, Field Hospitals, Turmoil and leader changes, reshuffles, crafting, and every persistent card except Stand and Deliver!, which has its own test.
