@@ -10,7 +10,7 @@ import { marquiseDraws } from '../engine/marquise'
 import type { Action, CardId, Faction, GameState } from '../engine/types'
 import { parseState, sendAction, subscribeRootGame, type RootGameDoc } from '../sync'
 import { CARD_BACK, VIZIER_IMAGE, cardImage, factionIcon, factionPortrait, leaderImage, pieceImage } from './assets'
-import Board from './Board'
+import Board from './Board3D'
 import { NONE, SETUP_ORDER, clickClearing, highlighted, verb, type Click, type Mode, type Verb } from './flow'
 import { STEP_NAME, actionLabel, waitingFor } from './labels'
 import { CardImage, FactionPanel, Log } from './Panels'
@@ -171,6 +171,20 @@ function selectedClearing(mode: Mode): ClearingId | null {
   return null
 }
 
+// Banner text for questions the player answers themselves.
+const YOUR_PROMPT: Partial<Record<NonNullable<GameState['pending'][number]>['kind'], string>> = {
+  'setup-keep': 'Choose a corner clearing for your keep.',
+  'setup-leader': 'Choose your leader.',
+  'choose-leader': 'Choose your new leader.',
+  'new-roost': 'A New Roost: choose a clearing.',
+  ambush: 'You are attacked! Play an ambush card?',
+  foil: 'Ambush! Foil it with your own ambush card?',
+  'battle-effects': 'Use your battle cards?',
+  removals: 'Choose which of your pieces are removed.',
+  'field-hospitals': 'Field Hospitals: return your warriors to the keep?',
+  'place-wood': 'Choose where your wood goes.',
+}
+
 const VERB_TEXT: Record<Verb, string> = {
   battle: 'Choose a clearing to battle in.',
   march: 'Choose a clearing to move warriors from.',
@@ -213,9 +227,7 @@ function bannerText(state: GameState, me: Faction, myMove: boolean, mode: Mode):
     case 'cards':
       return p?.kind === 'discard' ? `Discard ${p.count} card${p.count > 1 ? 's' : ''}: select them, then press ▶.` : ''
   }
-  if (p?.kind === 'setup-keep') return 'Choose a corner clearing for your keep.'
-  if (p?.kind === 'new-roost') return 'A New Roost: choose a clearing.'
-  if (p) return waitingFor(p, state)
+  if (p) return YOUR_PROMPT[p.kind] ?? waitingFor(p, state)
   if (state.step === 'birdsong') return 'Birdsong: use a card effect, or press ▶ to continue to Daylight.'
   if (state.step === 'daylight' && me === 'marquise') {
     if (state.turn.craftingOpen) return 'Daylight: craft from your hand first, or choose an action.'
