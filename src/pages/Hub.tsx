@@ -67,7 +67,7 @@ export default function Hub({ uid }: { uid: string }) {
       <div className="catalogue">
         {GAMES.map((game) => (
           <article key={game.id} className="card">
-            <div className="card-emoji">{game.emoji}</div>
+            {game.image ? <img className="card-image" src={game.image} alt="" /> : <div className="card-emoji">{game.emoji}</div>}
             <h3>{game.name}</h3>
             <p>{game.description}</p>
             <p className="muted">

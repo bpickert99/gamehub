@@ -5,11 +5,21 @@
         ".read": "auth != null",
         ".write": "auth != null && !data.exists() && newData.child('hostId').val() === auth.uid",
         ".validate": "newData.hasChildren(['gameId', 'hostId', 'status', 'minPlayers', 'maxPlayers', 'createdAt'])",
-        "gameId": { ".validate": "newData.isString()" },
-        "hostId": { ".validate": "newData.val() === auth.uid" },
-        "minPlayers": { ".validate": "newData.isNumber()" },
-        "maxPlayers": { ".validate": "newData.isNumber() && newData.val() >= newData.parent().child('minPlayers').val()" },
-        "createdAt": { ".validate": "newData.val() === now" },
+        "gameId": {
+          ".validate": "newData.isString()"
+        },
+        "hostId": {
+          ".validate": "newData.val() === auth.uid"
+        },
+        "minPlayers": {
+          ".validate": "newData.isNumber()"
+        },
+        "maxPlayers": {
+          ".validate": "newData.isNumber() && newData.val() >= newData.parent().child('minPlayers').val()"
+        },
+        "createdAt": {
+          ".validate": "newData.val() === now"
+        },
         "status": {
           ".write": "auth.uid === data.parent().child('hostId').val() && data.val() === 'lobby' && newData.val() === 'playing'",
           ".validate": "newData.val() === 'lobby' || newData.val() === 'playing'"
@@ -18,13 +28,19 @@
           "$uid": {
             ".write": "data.parent().parent().child('status').val() === 'lobby' && ((auth.uid === $uid && !data.parent().parent().child('kicked').child($uid).exists()) || (auth.uid === data.parent().parent().child('hostId').val() && auth.uid !== $uid && !newData.exists()))",
             ".validate": "newData.hasChildren(['name', 'joinedAt', 'connected'])",
-            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20" },
-            "joinedAt": { ".validate": "newData.val() === now" },
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
+            },
+            "joinedAt": {
+              ".validate": "newData.val() === now"
+            },
             "connected": {
               ".write": "auth.uid === $uid",
               ".validate": "newData.isBoolean()"
             },
-            "$other": { ".validate": false }
+            "$other": {
+              ".validate": false
+            }
           }
         },
         "kicked": {
@@ -33,7 +49,24 @@
             ".validate": "newData.val() === true"
           }
         },
-        "$other": { ".validate": false }
+        "game": {
+          ".write": "data.parent().child('players').child(auth.uid).exists() && (data.parent().child('status').val() === 'playing' || newData.parent().child('status').val() === 'playing')",
+          ".validate": "newData.hasChildren(['stateJson', 'seats'])",
+          "stateJson": {
+            ".validate": "newData.isString()"
+          },
+          "seats": {
+            "$uid": {
+              ".validate": "newData.val() === 'marquise' || newData.val() === 'eyrie'"
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
       }
     }
   }

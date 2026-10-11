@@ -10,6 +10,7 @@ import {
 } from 'firebase/database'
 import { db } from './firebase'
 import type { Game } from './games/catalogue'
+import { newRootGame, type RootGameDoc } from './games/root/sync'
 
 export type Player = {
   name: string
@@ -26,6 +27,7 @@ export type Room = {
   createdAt: number
   players?: Record<string, Player>
   kicked?: Record<string, true>
+  game?: RootGameDoc
 }
 
 // No I or O, so codes can't be confused with 1 and 0.
@@ -91,8 +93,10 @@ export function kickPlayer(code: string, uid: string): Promise<void> {
   })
 }
 
-export function startGame(code: string): Promise<void> {
-  return set(ref(db, `rooms/${code}/status`), 'playing')
+export function startGame(code: string, room: Room): Promise<void> {
+  const updates: Record<string, unknown> = { status: 'playing' }
+  if (room.gameId === 'root') updates.game = newRootGame(Object.keys(room.players ?? {}))
+  return update(roomRef(code), updates)
 }
 
 // Keeps players/{uid}/connected in sync with this browser's connection.

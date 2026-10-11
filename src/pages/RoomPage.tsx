@@ -14,6 +14,7 @@ import {
   type Room,
 } from '../rooms'
 import { loadName, MAX_NAME_LENGTH, saveName } from '../playerName'
+import RootGame from '../games/root/ui/RootGame'
 
 type Seat = { uid: string } & Player
 
@@ -40,7 +41,10 @@ export default function RoomPage({ uid }: { uid: string }) {
     if (room.status !== 'lobby') return <Notice text="This game has already started." />
     return <JoinForm code={code} uid={uid} room={room} />
   }
-  if (room.status === 'playing') return <GameScreen room={room} />
+  if (room.status === 'playing') {
+    if (room.gameId === 'root') return <RootGame code={code} uid={uid} />
+    return <GameScreen room={room} />
+  }
   return <Lobby code={code} uid={uid} room={room} />
 }
 
@@ -176,7 +180,7 @@ function Lobby({ code, uid, room }: { code: string; uid: string; room: Room }) {
 
       {isHost ? (
         <>
-          <button disabled={!enough} onClick={() => run(() => startGame(code))}>
+          <button disabled={!enough} onClick={() => run(() => startGame(code, room))}>
             Start game
           </button>
           {!enough && (

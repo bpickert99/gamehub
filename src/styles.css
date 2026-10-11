@@ -88,6 +88,7 @@ button.secondary { background: transparent; color: var(--text); border: 1px soli
 .card h3, .card p { margin: 0; }
 .card button { margin-top: auto; }
 .card-emoji { font-size: 2rem; }
+.card-image { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; }
 
 .muted { color: var(--muted); }
 .error { color: var(--error); }

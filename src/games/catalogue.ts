@@ -5,10 +5,20 @@ export type Game = {
   minPlayers: number
   maxPlayers: number
   emoji: string
+  image?: string
 }
 
-// Placeholder entries: the catalogue and lobby flow work end to end, the games themselves come later.
 export const GAMES: Game[] = [
+  {
+    id: 'root',
+    name: 'Root',
+    description: 'Woodland might and right. For now: Marquise de Cat vs Eyrie Dynasties, rules enforced.',
+    minPlayers: 2,
+    maxPlayers: 2,
+    emoji: '🌲',
+    image: '/root/cards/back.webp',
+  },
+  // Placeholder entries: the games themselves come later.
   {
     id: 'connect-four',
     name: 'Connect Four',
