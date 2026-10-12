@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { ClearingId } from '../data/autumnMap'
 import type { Faction, GameEvent } from '../engine/types'
 import { meeple } from './pieces3d'
-import { BRIDGE_DECK, clearingCenter, groundHeight, isDry } from './world3d'
+import { clearingCenter, walkHeight } from './world3d'
 
 // Turns the engine's events into a queue of short animations in the 3D woodland, played the same way
 // on every player's screen, with the camera gliding to each one.
@@ -103,8 +103,7 @@ export class Animator {
     const heading = Math.atan2(dir.x, dir.z)
     const along = (d: number) => {
       const p = from.clone().addScaledVector(dir, Math.max(0, Math.min(len, d)))
-      // Over water they cross on a bridge's deck.
-      p.y = isDry(p.x, p.z) ? groundHeight(p.x, p.z) : BRIDGE_DECK
+      p.y = walkHeight(p.x, p.z)
       return p
     }
     // 1. Gather in single file at the road's mouth.
@@ -151,12 +150,13 @@ export class Animator {
   }
 
   private pop(objs: Piece[], at: THREE.Vector3, local: boolean) {
+    const scales = objs.map((o) => o.scale.clone())
     this.queue.push({
       duration: 0.6,
       focus: local ? at : undefined,
       start: () => objs.forEach((o) => o.scale.setScalar(0.001)),
-      update: (k) => objs.forEach((o, i) => o.scale.setScalar(Math.max(0.001, Math.min(1, k * 1.6 - i * 0.12)) * bounce(k))),
-      end: () => objs.forEach((o) => o.scale.setScalar(1)),
+      update: (k) => objs.forEach((o, i) => o.scale.copy(scales[i]).multiplyScalar(Math.max(0.001, Math.min(1, k * 1.6 - i * 0.12)) * bounce(k))),
+      end: () => objs.forEach((o, i) => o.scale.copy(scales[i])),
     })
   }
 

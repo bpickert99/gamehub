@@ -1,7 +1,7 @@
 import type { ClearingId } from '../data/autumnMap'
 import type { DecreeColumn, MarquiseBuilding } from '../data/factions'
-import { moveWarriors, neighbours, openSlots } from '../engine/core'
-import { decreeOptions, legalMoves } from '../engine/legal'
+import { neighbours, openSlots } from '../engine/core'
+import { decreeOptions } from '../engine/legal'
 import type { Action, CardId, GameState, Move } from '../engine/types'
 
 // What the player is in the middle of choosing. Everything else is derived from the engine's legal actions.
@@ -9,16 +9,17 @@ export type Verb = 'battle' | 'march' | 'recruit' | 'build' | 'overwork'
 
 export type Mode =
   | { kind: 'none' }
-  | { kind: 'verb'; verb: Verb; from: ClearingId | null; first: Move | null; card: CardId | null }
+  | { kind: 'verb'; verb: Verb; from: ClearingId | null; card: CardId | null }
   | { kind: 'decree'; column: DecreeColumn; index: number; from: ClearingId | null }
-  | { kind: 'cobbler'; from: ClearingId | null }
+  // A move asked for by a prompt: a March's second move, or Cobbler's move.
+  | { kind: 'prompt-move'; from: ClearingId | null }
   | { kind: 'tax' }
   | { kind: 'setup-buildings'; placed: ClearingId[] }
   | { kind: 'decree-add'; staged: { card: CardId; column: DecreeColumn }[]; card: CardId | null }
   | { kind: 'cards'; cards: CardId[] }
 
 export const NONE: Mode = { kind: 'none' }
-export const verb = (v: Verb, card: CardId | null = null): Mode => ({ kind: 'verb', verb: v, from: null, first: null, card })
+export const verb = (v: Verb, card: CardId | null = null): Mode => ({ kind: 'verb', verb: v, from: null, card })
 
 export const SETUP_ORDER: MarquiseBuilding[] = ['sawmill', 'workshop', 'recruiter']
 
@@ -30,8 +31,7 @@ export type Click =
   | { kind: 'count'; move: Move; max: number; finish: (m: Move) => Click }
 
 export function moveOf(a: Action): Move | null {
-  if (a.type === 'march') return a.moves[0]
-  if (a.type === 'decree-move' || a.type === 'start-effect-move') return a.move
+  if (a.type === 'march' || a.type === 'march-move' || a.type === 'decree-move' || a.type === 'start-effect-move') return a.move
   return null
 }
 
@@ -53,8 +53,8 @@ export function candidates(state: GameState, options: Action[], mode: Mode): Act
       break
     case 'decree':
       return decreeOptions(state, mode.column, mode.index)
-    case 'cobbler':
-      return options.filter((a) => a.type === 'start-effect-move')
+    case 'prompt-move':
+      return options.filter((a) => a.type === 'march-move' || a.type === 'start-effect-move')
     case 'tax':
       return options.filter((a) => a.type === 'tax-collector')
     case 'setup-buildings':
@@ -64,29 +64,21 @@ export function candidates(state: GameState, options: Action[], mode: Mode): Act
   }
 }
 
-// Marquise March: the second move is computed after the first one is applied.
-export function secondMoves(state: GameState, first: Move): Move[] {
-  const draft = structuredClone(state)
-  moveWarriors(draft, 'marquise', first.from, first.to, first.count)
-  return legalMoves(draft, 'marquise')
-}
-
 function isMoveMode(mode: Mode): boolean {
-  return (mode.kind === 'verb' && mode.verb === 'march') || (mode.kind === 'decree' && mode.column === 'move') || mode.kind === 'cobbler'
+  return (mode.kind === 'verb' && mode.verb === 'march') || (mode.kind === 'decree' && mode.column === 'move') || mode.kind === 'prompt-move'
 }
 
-// The single moves on offer in a move mode (for a March's second move, the moves after the first).
+// The single moves on offer in a move mode.
 export function availableMoves(state: GameState, options: Action[], mode: Mode): Move[] {
-  if (mode.kind === 'verb' && mode.first) return secondMoves(state, mode.first)
   return candidates(state, options, mode).map(moveOf).filter((m): m is Move => m !== null)
 }
 
 function moveOrigin(mode: Mode): ClearingId | null {
-  return mode.kind === 'verb' || mode.kind === 'decree' || mode.kind === 'cobbler' ? mode.from : null
+  return mode.kind === 'verb' || mode.kind === 'decree' || mode.kind === 'prompt-move' ? mode.from : null
 }
 
 function withFrom(mode: Mode, from: ClearingId | null): Mode {
-  if (mode.kind === 'verb' || mode.kind === 'decree' || mode.kind === 'cobbler') return { ...mode, from }
+  if (mode.kind === 'verb' || mode.kind === 'decree' || mode.kind === 'prompt-move') return { ...mode, from }
   return mode
 }
 
@@ -133,16 +125,16 @@ function clickMove(state: GameState, options: Action[], mode: Mode, c: ClearingI
   if (c === from) return { kind: 'mode', mode: withFrom(mode, null) }
   const max = Math.max(0, ...moves.filter((m) => m.from === from && m.to === c).map((m) => m.count))
   if (max === 0) return null
-  const finish = (m: Move): Click => finishMove(state, mode, m)
+  const finish = (m: Move): Click => finishMove(options, mode, m)
   const move = { from, to: c, count: max }
   return max === 1 ? finish(move) : { kind: 'count', move, max, finish }
 }
 
-function finishMove(state: GameState, mode: Mode, m: Move): Click {
+function finishMove(options: Action[], mode: Mode, m: Move): Click {
   if (mode.kind === 'decree') return { kind: 'act', action: { type: 'decree-move', column: mode.column, index: mode.index, move: m } }
-  if (mode.kind === 'cobbler') return { kind: 'act', action: { type: 'start-effect-move', move: m } }
-  if (mode.kind === 'verb' && mode.first) return { kind: 'act', action: { type: 'march', moves: [mode.first, m] } }
-  // First move of a March: a second one may follow, or the player marches with just this one.
-  if (secondMoves(state, m).length === 0) return { kind: 'act', action: { type: 'march', moves: [m] } }
-  return { kind: 'mode', mode: { kind: 'verb', verb: 'march', from: null, first: m, card: null } }
+  if (mode.kind === 'prompt-move') {
+    const type = options.some((a) => a.type === 'march-move') ? 'march-move' : 'start-effect-move'
+    return { kind: 'act', action: { type, move: m } }
+  }
+  return { kind: 'act', action: { type: 'march', move: m } }
 }

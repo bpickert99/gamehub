@@ -1,7 +1,7 @@
 import { CLEARINGS, DIAGONAL_CORNER, type ClearingId } from '../data/autumnMap'
 import { MARQUISE, type MarquiseBuilding } from '../data/factions'
 import {
-  CLEARING_IDS, card, cardMatches, check, clearingSuit, emit, log, moveWarriors, neighbours, openSlots, placeWarriors, rules,
+  CLEARING_IDS, canMoveFrom, card, cardMatches, check, clearingSuit, emit, log, moveWarriors, neighbours, openSlots, placeWarriors, rules,
   score, spendFromHand,
 } from './core'
 import { startBattle } from './battle'
@@ -80,10 +80,11 @@ export function battle(s: GameState, c: ClearingId, defender: Faction): void {
   startBattle(s, 'marquise', c, defender)
 }
 
-export function march(s: GameState, moves: Move[]): void {
-  check(moves.length >= 1 && moves.length <= 2, 'March is up to two moves (6.5.2).')
+// March is up to two moves (6.5.2): the first now, then the player may take a second.
+export function march(s: GameState, m: Move): void {
   useAction(s)
-  for (const m of moves) moveWarriors(s, 'marquise', m.from, m.to, m.count)
+  moveWarriors(s, 'marquise', m.from, m.to, m.count)
+  if (CLEARING_IDS.some((c) => canMoveFrom(s, 'marquise', c))) s.pending.unshift({ kind: 'second-move', faction: 'marquise' })
 }
 
 export function recruiterClearings(s: GameState): ClearingId[] {

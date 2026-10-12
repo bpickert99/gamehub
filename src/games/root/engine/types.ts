@@ -54,6 +54,8 @@ export type Prompt =
   | { kind: 'removals'; faction: Faction; clearing: ClearingId; hits: number; context: RemovalContext }
   | { kind: 'field-hospitals'; faction: 'marquise'; clearing: ClearingId; count: number }
   | { kind: 'discard'; faction: Faction; count: number }
+  // The optional second move of a Marquise March (6.5.2), taken after the first is on the table.
+  | { kind: 'second-move'; faction: 'marquise' }
 
 // Why pieces are being removed, so the engine knows how to continue once the choice is made.
 export type RemovalContext = 'ambush' | 'battle'
@@ -146,7 +148,8 @@ export type Action =
   | { type: 'start-effect-move'; move: Move }
   | { type: 'skip' }
   | { type: 'battle'; clearing: ClearingId; defender: Faction }
-  | { type: 'march'; moves: Move[] }
+  | { type: 'march'; move: Move }
+  | { type: 'march-move'; move: Move }
   | { type: 'recruit'; clearings?: ClearingId[] }
   | { type: 'build'; clearing: ClearingId; building: MarquiseBuilding; wood: Partial<Record<ClearingId, number>> }
   | { type: 'overwork'; card: CardId; clearing: ClearingId }

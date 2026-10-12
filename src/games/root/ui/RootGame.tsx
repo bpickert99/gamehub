@@ -2,15 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ClearingId } from '../data/autumnMap'
 import { EYRIE, type DecreeColumn } from '../data/factions'
-import { card, FACTION_NAME, moveWarriors, opponent } from '../engine/core'
-import { nextColumn, entryPossible } from '../engine/eyrie'
+import { card, FACTION_NAME, opponent } from '../engine/core'
+import { nextColumn, entryPossible, entrySuit } from '../engine/eyrie'
 import { actor, applyAction } from '../engine/game'
 import { legalActions } from '../engine/legal'
-import { marquiseDraws } from '../engine/marquise'
-import type { Action, CardId, Faction, GameEvent, GameState } from '../engine/types'
+import { buildCost, marquiseDraws } from '../engine/marquise'
+import type { Action, CardId, Faction, GameState } from '../engine/types'
 import BattleCutaway, { type BattleView } from './BattleCutaway'
 import { parseState, sendAction, subscribeRootGame, type RootGameDoc } from '../sync'
-import { CARD_BACK, VIZIER_IMAGE, cardImage, factionIcon, factionPortrait, leaderImage, pieceImage } from './assets'
+import { CARD_BACK, cardImage, factionIcon, factionPortrait, leaderImage, pieceImage, suitIcon } from './assets'
 import Board from './Board3D'
 import { NONE, SETUP_ORDER, clickClearing, highlighted, verb, type Click, type Mode, type Verb } from './flow'
 import { STEP_NAME, actionLabel, waitingFor } from './labels'
@@ -60,26 +60,6 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
   const mode = defaultMode(state, me, myMove, chosen)
   const highlight = myMove ? highlighted(state, options, mode) : []
 
-  // March preview: after choosing the first move, it plays out on the board before the second is chosen.
-  const first = mode.kind === 'verb' && mode.verb === 'march' ? mode.first : null
-  const shown = useMemo(() => {
-    if (!first) return state
-    const draft = structuredClone(state)
-    draft.events = []
-    moveWarriors(draft, 'marquise', first.from, first.to, first.count)
-    return draft
-  }, [state, first])
-  // When the real March arrives, its first move was already shown by the preview.
-  const preview = useRef<GameEvent | null>(null)
-  if (first) preview.current = shown.events[0]
-  const skipEvents = useMemo(() => {
-    const p = preview.current
-    const e = state.events[0]
-    const same = p && e && JSON.stringify(p) === JSON.stringify(e)
-    preview.current = null
-    return same ? 1 : 0
-  }, [state])
-
   const feed = useEventFeed(state)
 
   async function act(action: Action) {
@@ -113,8 +93,7 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
   return (
     <div className={`rg-screen rg-${me} ${busy ? 'busy' : ''}`} style={{ ['--hud' as string]: settings.textSize }}>
       <Board
-        state={shown}
-        skipEvents={first ? 0 : skipEvents}
+        state={state}
         highlight={highlight}
         selected={selectedClearing(mode)}
         onClearing={onClearing}
@@ -123,7 +102,7 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
         frame={{ top: 80 * settings.textSize, bottom: (me === 'eyrie' ? 200 : 170) * settings.textSize }}
         popover={popover && {
           clearing: popover.clearing,
-          content: <PopoverMenu popover={popover} onAct={act} onRun={(cl) => run(cl, popover.clearing)} onClose={() => setMode(mode)} />,
+          content: <PopoverMenu popover={popover} state={state} onAct={act} onRun={(cl) => run(cl, popover.clearing)} onClose={() => setMode(mode)} />,
         }}
       />
 
@@ -205,7 +184,8 @@ function defaultMode(state: GameState, me: Faction, myMove: boolean, mode: Mode)
   if (!myMove || mode.kind !== 'none') return mode
   const p = state.pending[0]
   if (p?.kind === 'setup-buildings') return { kind: 'setup-buildings', placed: [] }
-  if (p?.kind === 'start-effect') return p.effect === 'cobbler' ? { kind: 'cobbler', from: null } : verb('battle')
+  if (p?.kind === 'start-effect') return p.effect === 'cobbler' ? { kind: 'prompt-move', from: null } : verb('battle')
+  if (p?.kind === 'second-move') return { kind: 'prompt-move', from: null }
   if (p?.kind === 'discard') return { kind: 'cards', cards: [] }
   if (p) return mode
   if (me === 'eyrie' && state.step === 'daylight') {
@@ -220,7 +200,7 @@ function defaultMode(state: GameState, me: Faction, myMove: boolean, mode: Mode)
 }
 
 function selectedClearing(mode: Mode): ClearingId | null {
-  if (mode.kind === 'verb' || mode.kind === 'decree' || mode.kind === 'cobbler') return mode.from
+  if (mode.kind === 'verb' || mode.kind === 'decree' || mode.kind === 'prompt-move') return mode.from
   return null
 }
 
@@ -259,10 +239,7 @@ function bannerText(state: GameState, me: Faction, myMove: boolean, mode: Mode):
     case 'setup-buildings':
       return `Choose a clearing for your ${SETUP_ORDER[mode.placed.length]}.`
     case 'verb':
-      if (mode.verb === 'march') {
-        if (mode.from) return `March: choose where to move to (${mode.first ? 'second' : 'first'} move).`
-        return mode.first ? 'Choose a clearing for a second move, or press ▶ to march with one.' : VERB_TEXT.march
-      }
+      if (mode.verb === 'march') return mode.from ? 'March: choose where to move to.' : VERB_TEXT.march
       if (p?.kind === 'start-effect') return 'Command Warren: choose a clearing to battle in, or press ▶ to skip.'
       return VERB_TEXT[mode.verb]
     case 'decree': {
@@ -271,8 +248,11 @@ function bannerText(state: GameState, me: Faction, myMove: boolean, mode: Mode):
       if (mode.column === 'move') return mode.from ? 'Decree: choose where to move to.' : 'Decree: choose a matching clearing to move warriors from.'
       return `Decree: choose a matching clearing to ${mode.column} in.`
     }
-    case 'cobbler':
-      return mode.from ? 'Cobbler: choose where to move to.' : 'Cobbler: choose a clearing to move from, or press ▶ to skip.'
+    case 'prompt-move': {
+      const what = p?.kind === 'second-move' ? 'March' : 'Cobbler'
+      if (mode.from) return `${what}: choose where to move to.`
+      return p?.kind === 'second-move' ? 'March: choose a second move, or press ▶ to stop at one.' : 'Cobbler: choose a clearing to move from, or press ▶ to skip.'
+    }
     case 'tax':
       return 'Tax Collector: choose a clearing to remove one of your warriors.'
     case 'decree-add':
@@ -500,24 +480,27 @@ function DecreeBar({ state, mode, myMove, onMode }: { state: GameState; mode: Mo
             <img src={COLUMN_ICON[column]} alt="" />
             <span>{column}</span>
           </button>
-          <div className="rg-column-cards">
+          {/* One suit circle per Decree card: where this action can be taken. */}
+          <div className="rg-suits">
             {state.eyrie.decree[column].map((entry, index) => {
               const key = `${column}:${index}`
               const done = resolving && state.turn.resolved.includes(key)
               const active = mode.kind === 'decree' && mode.column === column && mode.index === index
+              const suit = entrySuit(entry)
               return (
                 <button
                   key={key}
-                  className={`rg-decree-card ${done ? 'done' : ''} ${active ? 'active' : ''}`}
+                  className={`rg-suit ${done ? 'done' : ''} ${active ? 'active' : ''}`}
                   disabled={!myMove || done || current !== column}
                   onClick={() => onMode({ kind: 'decree', column, index, from: null })}
+                  title={'vizier' in entry ? 'Loyal Vizier (bird)' : `${card(entry.card).name} (${suit})`}
                 >
-                  <img src={'vizier' in entry ? VIZIER_IMAGE : cardImage(entry.card)} alt="" />
+                  <img src={suitIcon(suit)} alt={suit} />
                 </button>
               )
             })}
             {staged.filter((s) => s.column === column).map((s) => (
-              <span key={s.card} className="rg-decree-card staged"><img src={cardImage(s.card)} alt="" /></span>
+              <span key={s.card} className="rg-suit staged"><img src={suitIcon(card(s.card).suit)} alt="" /></span>
             ))}
           </div>
         </div>
@@ -529,7 +512,6 @@ function DecreeBar({ state, mode, myMove, onMode }: { state: GameState; mode: Mo
 // The ▶ button: end the phase, confirm a selection, fall into Turmoil, or skip an optional effect.
 function continueAction(state: GameState, me: Faction, mode: Mode, options: Action[]): Action | null {
   const p = state.pending[0]
-  if (mode.kind === 'verb' && mode.verb === 'march' && mode.first) return { type: 'march', moves: [mode.first] }
   if (mode.kind === 'decree-add') return mode.staged.length > 0 ? { type: 'add-to-decree', entries: mode.staged } : null
   if (mode.kind === 'cards' && p?.kind === 'discard') return mode.cards.length === p.count ? { type: 'discard', cards: mode.cards } : null
   if (mode.kind === 'decree') {
@@ -543,9 +525,31 @@ function continueAction(state: GameState, me: Faction, mode: Mode, options: Acti
 
 // ---------- popovers and dialogs ----------
 
-function PopoverMenu({ popover, onAct, onRun, onClose }: { popover: Popover; onAct: (a: Action) => void; onRun: (c: Click) => void; onClose: () => void }) {
+function PopoverMenu({ popover, state, onAct, onRun, onClose }: { popover: Popover; state: GameState; onAct: (a: Action) => void; onRun: (c: Click) => void; onClose: () => void }) {
   const click = popover.click
   if (click.kind === 'choose') {
+    const builds = click.options.map((o) => o.action).filter((a) => a.type === 'build')
+    // Building: a picture of each building, what it costs and what it scores.
+    if (builds.length === click.options.length) {
+      return (
+        <>
+          <span>Build here:</span>
+          <div className="rg-builds">
+            {builds.map((a) => {
+              const price = buildCost(state, a.building)!
+              return (
+                <button key={a.building} className="rg-build" onClick={() => onAct(a)}>
+                  <img src={pieceImage(a.building)} alt="" />
+                  <strong>{a.building[0].toUpperCase() + a.building.slice(1)}</strong>
+                  <small>Costs {price.cost} wood · Scores {price.vp}</small>
+                </button>
+              )
+            })}
+          </div>
+          <button className="rg-plain" onClick={onClose}>Cancel</button>
+        </>
+      )
+    }
     return (
       <>
         {click.options.map((o, i) => <button key={i} onClick={() => onAct(o.action)}>{o.label}</button>)}

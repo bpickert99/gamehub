@@ -12,10 +12,10 @@ export const RIVER: P[] = [
   px(165, 434), px(122, 452), px(78, 478), px(40, 500),
 ]
 
-// The lake in the bottom-left corner, running off the edge of the board.
+// The lake in the bottom-left corner, running off the edge of the board and away into the mist.
 export const LAKE: P[] = [
-  px(-80, 300), px(0, 312), px(24, 340), px(30, 380), px(18, 420), px(30, 455), px(52, 485), px(70, 520),
-  px(78, 556), px(70, 640), px(-80, 640),
+  px(-400, 300), px(0, 312), px(24, 340), px(30, 380), px(18, 420), px(30, 455), px(52, 485), px(70, 520),
+  px(78, 556), px(90, 640), px(140, 1000), px(-400, 1000),
 ]
 
 // A small pond beside clearing L, as printed.

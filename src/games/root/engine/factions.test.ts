@@ -64,16 +64,32 @@ describe('Marquise de Cat (6)', () => {
     expect(() => act(s, 'marquise', { type: 'recruit' })).toThrow(/once per turn/)
   })
 
+  it('March: the first move happens at once, then a second may follow or be skipped (6.5.2)', () => {
+    let s = at(setUpGame(), 'marquise', 'daylight')
+    s = act(s, 'marquise', { type: 'march', move: { from: 'B', to: 'F', count: 1 } })
+    expect(s.clearings.F.warriors.marquise).toBe(2)
+    expect(s.pending[0]).toEqual({ kind: 'second-move', faction: 'marquise' })
+    // Nothing else can happen until the March is finished.
+    expect(() => act(s, 'marquise', { type: 'recruit' })).toThrow(/not an answer/)
+    const two = act(s, 'marquise', { type: 'march-move', move: { from: 'F', to: 'H', count: 2 } })
+    expect(two.clearings.H.warriors.marquise).toBe(3)
+    expect(two.pending).toEqual([])
+    const one = act(s, 'marquise', { type: 'skip' })
+    expect(one.clearings.F.warriors.marquise).toBe(2)
+    expect(one.turn.actionsLeft).toBe(2)
+  })
+
   it('takes three actions, plus one per bird card spent (6.5)', () => {
     let s = at(setUpGame(), 'marquise', 'daylight')
     giveHand(s, 'marquise', [cardId('Armorers')])
-    const move = { type: 'march' as const, moves: [{ from: 'B' as const, to: 'F' as const, count: 1 }, { from: 'F' as const, to: 'B' as const, count: 1 }] }
-    s = act(s, 'marquise', move)
-    s = act(s, 'marquise', move)
-    s = act(s, 'marquise', move)
-    expect(() => act(s, 'marquise', move)).toThrow(/no actions left/)
+    // A March of two moves: there and back again.
+    const march = (s0: typeof s) => act(act(s0, 'marquise', { type: 'march', move: { from: 'B', to: 'F', count: 1 } }), 'marquise', { type: 'march-move', move: { from: 'F', to: 'B', count: 1 } })
+    s = march(s)
+    s = march(s)
+    s = march(s)
+    expect(() => march(s)).toThrow(/no actions left/)
     s = act(s, 'marquise', { type: 'spend-bird', card: cardId('Armorers') })
-    s = act(s, 'marquise', move)
+    s = march(s)
     expect(s.turn.actionsLeft).toBe(0)
   })
 

@@ -8,13 +8,24 @@ import { CLEARING_IDS, ruler } from '../engine/core'
 import type { Faction, GameState } from '../engine/types'
 import type { InfoKey } from '../data/rulesInfo'
 import { pieceImage, suitIcon } from './assets'
-import { badge, keep, meeple, ringTexture, suitBanner, tile } from './pieces3d'
+import { WARRIOR_HEIGHT, badge, keep, meeple, ringTexture, suitBanner, tile } from './pieces3d'
 import { building3d, logPile, slotMarker } from './buildings3d'
 import { Animator } from './animator'
-import { CLEARING_RADIUS, SKY, WORLD_H, WORLD_W, anchorFraction, buildWorld, groundHeight, isDry, isOpenGround, marketPosition, toWorld } from './world3d'
+import { CLEARING_RADIUS, MIST, WORLD_H, WORLD_W, anchorFraction, buildWorld, groundHeight, isDry, isOpenGround, marketPosition, toWorld } from './world3d'
 
 // How far from a clearing's centre its suit banner stands.
 const BANNER_RADIUS = 6.3
+// A banner's height in world units, and the least it may shrink to on screen, in pixels.
+const BANNER_SIZE = 4.4
+const BANNER_MIN_PX = 60
+// The same for the warrior count badges.
+const BADGE_SIZE = 1
+const BADGE_MIN_PX = 24
+// How close the camera comes to watch an action: a clearing fills much of the screen, as in the app.
+const ACTION_VIEW = 30
+// Buildings, ruins, the keep and wood are drawn this much larger than their models, to suit the
+// warriors' size.
+const BUILDING_SIZE = 1.45
 
 // Board fractions → a point on the ground of the 3D woodland.
 const world = (p: { x: number; y: number }, lift = 0) => {
@@ -34,8 +45,6 @@ type Props = {
   shadows: boolean
   // Screen space covered by the overlays at the top and bottom, kept clear when framing the board.
   frame: { top: number; bottom: number }
-  // How many of the state's events were already shown (as a local preview) and should not replay.
-  skipEvents: number
 }
 
 type Scene = {
@@ -47,10 +56,12 @@ type Scene = {
   rings: THREE.Group
   resize: () => void
   animated: THREE.Object3D[]
+  banners: THREE.Sprite[]
+  badges: THREE.Sprite[]
   animator: Animator
 }
 
-export default function Board3D({ state, highlight, selected, onClearing, popover, onInfo, shadows, frame, skipEvents }: Props) {
+export default function Board3D({ state, highlight, selected, onClearing, popover, onInfo, shadows, frame }: Props) {
   const frameRef = useRef(frame)
   frameRef.current = frame
   // The camera controls own `surface`; popovers and buttons live outside it so the controls never
@@ -61,18 +72,23 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
   const [screen, setScreen] = useState<Record<string, { x: number; y: number; r: number }>>({})
   const press = useRef<{ x: number; y: number } | null>(null)
   const firstBuild = useRef(true)
+  // The clearings to choose from, waiting to be framed once the animations finish.
+  const frameChoices = useRef<{ centre: THREE.Vector3; dist: number } | null>(null)
+  const framedKey = useRef('')
   // True while the camera glides or pieces animate (tests wait for it before clicking).
   const [busy, setBusy] = useState(false)
-  // Event lists already animated, so returning to a state (e.g. cancelling a preview) doesn't replay it.
-  const played = useRef(new WeakSet<object>())
   // The piece under the pointer, for the rules "i" button.
+  // It stands just above the piece (not at the pointer), so it holds still while you reach for it.
   const [hover, setHover] = useState<{ key: InfoKey; x: number; y: number } | null>(null)
+  const hovered = useRef<{ piece: THREE.Object3D; top: number } | null>(null)
+  const hideTimer = useRef(0)
 
   // ---------- scene setup, once ----------
   useEffect(() => {
     const el = surface.current!
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    // Above 1.5 the extra pixels cost more frame rate than they add sharpness.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -80,7 +96,7 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     el.prepend(renderer.domElement)
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(SKY)
+    scene.background = new THREE.Color(MIST)
 
     scene.add(new THREE.HemisphereLight('#fff4dc', '#3b4a2c', 1.25))
     const sun = new THREE.DirectionalLight('#fff0d0', 2.1)
@@ -111,15 +127,21 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     // Keep the camera's focus on the board so it can never drift away. The further out the camera,
     // the closer to the centre its focus is held: fully zoomed out it shows exactly the whole board,
     // never the world's edge.
+    const allowedFocus = (p: THREE.Vector3, dist: number) => {
+      const reach = THREE.MathUtils.clamp((controls.maxDistance - dist) / (controls.maxDistance * 0.55), 0, 1)
+      return new THREE.Vector3(
+        THREE.MathUtils.clamp(p.x, (-WORLD_W / 2) * reach, (WORLD_W / 2) * reach),
+        p.y,
+        THREE.MathUtils.clamp(p.z, (-WORLD_H / 2) * reach, (WORLD_H / 2) * reach),
+      )
+    }
     controls.addEventListener('change', () => {
       const t = controls.target
-      const reach = THREE.MathUtils.clamp((controls.maxDistance - camera.position.distanceTo(t)) / (controls.maxDistance * 0.55), 0, 1)
-      const cx = THREE.MathUtils.clamp(t.x, (-WORLD_W / 2) * reach, (WORLD_W / 2) * reach)
-      const cz = THREE.MathUtils.clamp(t.z, (-WORLD_H / 2) * reach, (WORLD_H / 2) * reach)
-      if (cx !== t.x || cz !== t.z) {
-        camera.position.x += cx - t.x
-        camera.position.z += cz - t.z
-        t.set(cx, t.y, cz)
+      const c = allowedFocus(t, camera.position.distanceTo(t))
+      if (c.x !== t.x || c.z !== t.z) {
+        camera.position.x += c.x - t.x
+        camera.position.z += c.z - t.z
+        t.copy(c)
       }
     })
 
@@ -165,14 +187,15 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     place(hi)
     controls.maxDistance = hi
     // Fully zoomed out the whole board stays clear; only the far woods fade into the haze.
-    scene.fog = new THREE.Fog(SKY, hi * 1.05, hi * 1.6)
+    scene.fog = new THREE.Fog(MIST, hi * 1.05, hi * 1.6)
     controls.update()
 
     window.addEventListener('resize', resize)
-    // The camera glides to each action as it is animated, keeping its angle.
-    const glide = { to: null as THREE.Vector3 | null }
-    const animator = new Animator(scene, { focus: (p) => (glide.to = p.clone()) })
-    three.current = { renderer, camera, controls, scene, pieces, rings, resize, animated: [], animator }
+    // The camera glides to each action as it is animated, keeping its angle, coming in to watch it if
+    // it is further out; and frames the clearings to choose from when it is your choice.
+    const glide = { to: null as THREE.Vector3 | null, dist: ACTION_VIEW, closerOnly: true }
+    const animator = new Animator(scene, { focus: (p) => Object.assign(glide, { to: p.clone(), dist: ACTION_VIEW, closerOnly: true }) })
+    three.current = { renderer, camera, controls, scene, pieces, rings, resize, animated: [], banners: [], badges: [], animator }
 
     let frame = 0
     const v = new THREE.Vector3()
@@ -182,14 +205,21 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
       // Animations run on real time, so they take as long on a slow machine as on a fast one.
       const elapsed = last ? (t - last) / 1000 : 0
       last = t
+      const choices = frameChoices.current
+      if (choices && !animator.busy) {
+        Object.assign(glide, { to: choices.centre, dist: Math.min(choices.dist, controls.maxDistance), closerOnly: false })
+        frameChoices.current = null
+      }
       if (glide.to) {
-        const move = glide.to.clone().sub(controls.target).multiplyScalar(Math.min(1, elapsed * 3))
+        const now = camera.position.distanceTo(controls.target)
+        const want = glide.closerOnly ? Math.min(now, glide.dist) : glide.dist
+        // Aim where the focus may rest at that distance, so the glide can always arrive.
+        const move = allowedFocus(glide.to, want).sub(controls.target).multiplyScalar(Math.min(1, elapsed * 3))
         controls.target.add(move)
         camera.position.add(move)
-        // Come in closer if the camera is far out, so the action can be seen.
         const offset = camera.position.clone().sub(controls.target)
-        if (offset.length() > 48) camera.position.copy(controls.target).add(offset.setLength(offset.length() - (offset.length() - 48) * Math.min(1, elapsed * 2)))
-        if (move.length() < 0.01 && offset.length() <= 48.5) glide.to = null
+        camera.position.copy(controls.target).add(offset.setLength(offset.length() + (want - offset.length()) * Math.min(1, elapsed * 2)))
+        if (move.length() < 0.01 && Math.abs(offset.length() - want) < 0.5) glide.to = null
       }
       controls.update()
       woodland.update(t / 1000, Math.min(0.05, elapsed))
@@ -208,8 +238,28 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
         if (ring.userData.pulse) (ring.material as THREE.MeshBasicMaterial).opacity = 0.65 + 0.35 * Math.sin(t / 260)
       }
       renderer.render(scene, camera)
-      // Project clearings to the screen for the click targets and popovers.
       const rect = el.getBoundingClientRect()
+      // Clearing banners never shrink below a readable size on screen, however far out you zoom.
+      const perPixel = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / rect.height
+      for (const b of three.current?.banners ?? []) {
+        const s = Math.max(BANNER_SIZE, camera.position.distanceTo(b.position) * perPixel * BANNER_MIN_PX)
+        b.scale.set(s * 0.7, s, 1)
+      }
+      // So do the warrior counts: zoomed out, they say what the tiny figures are.
+      for (const b of three.current?.badges ?? []) {
+        const s = Math.max(BADGE_SIZE, camera.position.distanceTo(b.position) * perPixel * BADGE_MIN_PX)
+        b.scale.set(s, s, 1)
+      }
+      // Keep the rules button just above the hovered piece.
+      const h = hovered.current
+      if (h) {
+        v.set(h.piece.position.x, h.top + 0.3, h.piece.position.z).project(camera)
+        const x = Math.round(((v.x + 1) / 2) * rect.width)
+        const y = Math.round(((1 - v.y) / 2) * rect.height)
+        const key = h.piece.userData.info as InfoKey
+        setHover((prev) => (prev && prev.key === key && prev.x === x && prev.y === y ? prev : { key, x, y }))
+      }
+      // Project clearings to the screen for the click targets and popovers.
       const out: Record<string, { x: number; y: number; r: number }> = {}
       for (const c of CLEARING_IDS) {
         const p = world(anchor(c))
@@ -252,13 +302,12 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
     if (!t) return
     const before = [...t.pieces.children]
     t.pieces.clear()
-    t.animated = buildPieces(state, t.pieces)
+    Object.assign(t, buildPieces(state, t.pieces))
     // Animate what just happened, except on first load (nothing has happened yet).
-    if (!firstBuild.current && !played.current.has(state.events)) {
+    if (!firstBuild.current) {
       t.animator.finish()
-      t.animator.play(state.events.slice(skipEvents), before, [...t.pieces.children])
+      t.animator.play(state.events, before, [...t.pieces.children])
     }
-    played.current.add(state.events)
     firstBuild.current = false
   }, [state])
 
@@ -266,12 +315,26 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
   useEffect(() => {
     const t = three.current
     if (!t) return
+    // A new set of clearings to choose from: bring them all into view.
+    const key = highlight.join()
+    if (key !== framedKey.current) {
+      framedKey.current = key
+      if (highlight.length > 0) {
+        const points = highlight.map((c) => world(anchor(c)))
+        const centre = points.reduce((a, b) => a.add(b), new THREE.Vector3()).divideScalar(points.length)
+        const reach = Math.max(...points.map((p) => p.distanceTo(centre))) + CLEARING_RADIUS + 3
+        const dist = Math.max(ACTION_VIEW, (reach / Math.tan(THREE.MathUtils.degToRad(t.camera.fov / 2))) * 1.1)
+        frameChoices.current = { centre, dist }
+      }
+    }
     t.rings.clear()
     const geo = new THREE.PlaneGeometry(CLEARING_RADIUS * 2, CLEARING_RADIUS * 2)
     for (const c of CLEARING_IDS) {
       const kind = selected === c ? 'selected' : highlight.includes(c) ? 'on' : null
       if (!kind) continue
-      const ring = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: ringTexture(kind), transparent: true, depthWrite: false }))
+      // Drawn over everything, so trees and pieces never hide where you can act.
+      const ring = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: ringTexture(kind), transparent: true, depthWrite: false, depthTest: false }))
+      ring.renderOrder = 8
       ring.rotation.x = -Math.PI / 2
       ring.position.copy(world(anchor(c), 0.1))
       ring.userData.pulse = kind === 'on'
@@ -322,13 +385,20 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
       let o: THREE.Object3D | null = hit.object
       while (o && !o.userData.info) o = o.parent
       if (!o) continue
-      const key = o.userData.info as InfoKey
-      if (hover?.key !== key || Math.hypot(hover.x - (e.clientX - rect.left), hover.y - (e.clientY - rect.top)) > 40) {
-        setHover({ key, x: e.clientX - rect.left, y: e.clientY - rect.top })
-      }
+      window.clearTimeout(hideTimer.current)
+      if (hovered.current?.piece !== o) hovered.current = { piece: o, top: new THREE.Box3().setFromObject(o).max.y }
       return
     }
-    if (hover) setHover(null)
+    leaveHover()
+  }
+
+  // Off the piece, the button lingers a moment so the pointer can reach it.
+  function leaveHover() {
+    window.clearTimeout(hideTimer.current)
+    hideTimer.current = window.setTimeout(() => {
+      hovered.current = null
+      setHover(null)
+    }, 700)
   }
 
   const pop = popover && screen[popover.clearing]
@@ -350,12 +420,21 @@ export default function Board3D({ state, highlight, selected, onClearing, popove
         })}
       </div>
       {popover && pop && (
-        <div className="rb-popover-anchor" style={{ left: pop.x, top: pop.y }}>
+        // Opens below a clearing in the top half of the screen, above one in the bottom half, so it
+        // always has room.
+        <div className={`rb-popover-anchor ${pop.y < (surface.current?.clientHeight ?? 0) / 2 ? 'below' : ''}`} style={{ left: pop.x, top: pop.y }}>
           <div className="rb-popover">{popover.content}</div>
         </div>
       )}
       {hover && (
-        <button className="rb-info" style={{ left: hover.x + 14, top: hover.y - 34 }} onClick={() => onInfo(hover.key)} aria-label="Rules for this piece">
+        <button
+          className="rb-info"
+          style={{ left: hover.x, top: hover.y }}
+          onPointerEnter={() => window.clearTimeout(hideTimer.current)}
+          onPointerLeave={leaveHover}
+          onClick={() => onInfo(hover.key)}
+          aria-label="Rules for this piece"
+        >
           i
         </button>
       )}
@@ -377,9 +456,11 @@ function tag<T extends THREE.Object3D>(o: T, info: InfoKey, clearing?: ClearingI
   return o
 }
 
-// Returns the pieces with idle animations (saw blades, flags).
-function buildPieces(state: GameState, group: THREE.Group): THREE.Object3D[] {
+// Returns the pieces with idle animations (saw blades, flags), and the clearings' banners.
+function buildPieces(state: GameState, group: THREE.Group): { animated: THREE.Object3D[]; banners: THREE.Sprite[]; badges: THREE.Sprite[] } {
   const animated: THREE.Object3D[] = []
+  const banners: THREE.Sprite[] = []
+  const badges: THREE.Sprite[] = []
 
   // The item supply: a market table at the top left, items laid out as printed.
   const market = marketPosition()
@@ -409,6 +490,7 @@ function buildPieces(state: GameState, group: THREE.Group): THREE.Object3D[] {
     const free = layout.slots.map((_, i) => i).filter((i) => !(cs.ruins > 0 && i === layout.ruinSlot))
     if (cs.ruins > 0 && layout.ruinSlot !== null) {
       const ruin = tag(building3d('ruin', null), 'ruin', c)
+      ruin.scale.setScalar(BUILDING_SIZE)
       ruin.position.copy(world(layout.slots[layout.ruinSlot]))
       group.add(ruin)
     }
@@ -417,11 +499,13 @@ function buildPieces(state: GameState, group: THREE.Group): THREE.Object3D[] {
       const b = cs.buildings[i]
       if (!b) {
         const marker = slotMarker()
+        marker.scale.setScalar(BUILDING_SIZE * 0.9)
         marker.position.copy(at).add(new THREE.Vector3(0, 0.03, 0))
         group.add(marker)
         return
       }
       const m = tag(building3d(b.kind, b.faction), b.kind, c, b.faction)
+      m.scale.setScalar(BUILDING_SIZE)
       m.position.copy(at)
       // Face the building toward the viewer, turned slightly toward the clearing's centre.
       m.rotation.y = Math.atan2(world(a).x - at.x, 40) * 0.6
@@ -431,9 +515,9 @@ function buildPieces(state: GameState, group: THREE.Group): THREE.Object3D[] {
 
     // Suit banner, with a ribbon in the ruler's colour.
     const banner = suitBanner(CLEARINGS[c].suit, ruler(state, c), suitIcon(CLEARINGS[c].suit))
-    banner.scale.multiplyScalar(2.6)
     banner.position.copy(bannerSpot(c))
     group.add(banner)
+    banners.push(banner)
 
     // Tokens and warriors go on open ground around the clearing, away from its building slots.
     const hasKeep = cs.tokens.some((t) => t.kind === 'keep')
@@ -448,18 +532,18 @@ function buildPieces(state: GameState, group: THREE.Group): THREE.Object3D[] {
       const offsets = [[0, 0], [-0.62, -0.4], [0.62, -0.4], [-0.62, 0.45], [0.62, 0.45]].slice(0, Math.min(n, 5))
       for (const [dx, dz] of offsets) {
         const m = tag(meeple(f), `warrior-${f}` as InfoKey, c, f)
-        m.position.copy(base).add(new THREE.Vector3(dx, 0, dz))
+        m.position.copy(onGround(base.x + dx * WARRIOR_HEIGHT, base.z + dz * WARRIOR_HEIGHT))
         m.rotation.y = (hashAngle(c, dx, dz) - 0.5) * 0.5
         group.add(m)
       }
       const b = badge(n, f)
-      b.scale.multiplyScalar(1.6)
-      b.position.copy(base).add(new THREE.Vector3(0.95, 1.25, 0.5))
+      b.position.copy(base).add(new THREE.Vector3(0.95, 1.25, 0.5).multiplyScalar(WARRIOR_HEIGHT))
       group.add(b)
+      badges.push(b)
     })
     if (hasKeep) {
       const k = tag(keep(), 'keep', c, 'marquise')
-      k.scale.setScalar(2)
+      k.scale.setScalar(2 * BUILDING_SIZE)
       k.position.copy(spots.shift()!)
       group.add(k)
     }
@@ -468,12 +552,13 @@ function buildPieces(state: GameState, group: THREE.Group): THREE.Object3D[] {
       const base = spots.shift()!
       for (let i = 0; i < wood; i++) {
         const pile = tag(logPile(), 'wood', c, 'marquise')
-        pile.position.copy(base).add(new THREE.Vector3(((i % 3) - 1) * 0.75, 0, Math.floor(i / 3) * 0.75))
+        pile.scale.setScalar(BUILDING_SIZE)
+        pile.position.copy(onGround(base.x + ((i % 3) - 1) * 0.75 * BUILDING_SIZE, base.z + Math.floor(i / 3) * 0.75 * BUILDING_SIZE))
         group.add(pile)
       }
     }
   }
-  return animated
+  return { animated, banners, badges }
 }
 
 function hashAngle(c: string, dx: number, dz: number): number {
@@ -481,7 +566,6 @@ function hashAngle(c: string, dx: number, dz: number): number {
   return s - Math.floor(s)
 }
 
-// Spots around a clearing's centre that keep clear of its building slots and of each other.
 // A clearing's banner stands at its upper right edge, or the nearest spot round the edge that is
 // clear of the river and roads.
 function bannerSpot(c: ClearingId): THREE.Vector3 {
@@ -490,28 +574,38 @@ function bannerSpot(c: ClearingId): THREE.Vector3 {
     const a = -0.75 + turn
     const x = centre.x + Math.cos(a) * BANNER_RADIUS
     const z = centre.z + Math.sin(a) * BANNER_RADIUS
-    if (isOpenGround(x, z)) return new THREE.Vector3(x, groundHeight(x, z) + 0.4, z)
+    // Floating a little above the ground.
+    if (isOpenGround(x, z)) return new THREE.Vector3(x, groundHeight(x, z) + 1.2, z)
   }
   throw new Error(`No open ground for clearing ${c}'s banner.`)
 }
 
+// A point on the ground itself (each spot takes its own height, so nothing sinks into a slope).
+function onGround(x: number, z: number): THREE.Vector3 {
+  return new THREE.Vector3(x, groundHeight(x, z), z)
+}
+
+// Spots around a clearing's centre, on dry ground, that keep clear of its building slots and of
+// each other: room for a group of warriors, the keep, or a wood pile.
 function openGround(c: ClearingId, count: number): THREE.Vector3[] {
   const centre = world(anchor(c))
   const slots = SLOTS[c].slots.map((p) => world(p))
-  const candidates = [centre.clone()].filter((p) => isDry(p.x, p.z))
+  const candidates = [centre.clone()]
   for (const r of [1.6, 2.6, 3.6]) {
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * Math.PI * 2
-      const p = centre.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * 0.9))
-      if (isDry(p.x, p.z)) candidates.push(p)
+      candidates.push(onGround(centre.x + Math.cos(a) * r, centre.z + Math.sin(a) * r * 0.9))
     }
   }
+  // A group of warriors is about two warriors across; it must stand clear of the water too.
+  const dry = candidates.filter((p) => [[0, 0], [-1, -0.7], [1, -0.7], [-1, 0.7], [1, 0.7]].every(([dx, dz]) => isDry(p.x + dx, p.z + dz)))
+  const flat = (p: THREE.Vector3, q: THREE.Vector3) => Math.hypot(p.x - q.x, p.z - q.z)
   const chosen: THREE.Vector3[] = []
-  const clearance = (p: THREE.Vector3) => Math.min(...[...slots.map((q) => p.distanceTo(q) - 0.6), ...chosen.map((q) => p.distanceTo(q) - 0.4)])
+  const clearance = (p: THREE.Vector3) => Math.min(...[...slots.map((q) => flat(p, q) - (1.1 * BUILDING_SIZE + 1.6)), ...chosen.map((q) => flat(p, q) - 2.4)])
   for (let k = 0; k < count; k++) {
     // Prefer roomy spots near the centre, slightly toward the viewer.
-    const best = candidates.reduce((a, b) => {
-      const score = (p: THREE.Vector3) => Math.min(clearance(p), 2.2) - p.distanceTo(centre) * 0.12 + (p.z - centre.z) * 0.04
+    const best = dry.reduce((a, b) => {
+      const score = (p: THREE.Vector3) => Math.min(clearance(p), 1) - flat(p, centre) * 0.12 + (p.z - centre.z) * 0.04
       return score(b) > score(a) ? b : a
     })
     chosen.push(best)

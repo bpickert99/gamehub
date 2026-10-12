@@ -102,6 +102,10 @@ export function legalActions(s: GameState): { faction: Faction; action: Action }
       case 'new-roost':
         for (const c of p.options) out.push({ type: 'new-roost', clearing: c })
         break
+      case 'second-move':
+        out.push({ type: 'skip' })
+        for (const m of legalMoves(s, f)) out.push({ type: 'march-move', move: m })
+        break
       case 'start-effect':
         out.push({ type: 'skip' })
         if (p.effect === 'command-warren') for (const c of battleTargets(s, f)) out.push({ type: 'start-effect-battle', clearing: c, defender: opponent(s, f) })
@@ -174,7 +178,7 @@ export function legalActions(s: GameState): { faction: Faction; action: Action }
     if (f === 'marquise') {
       if (s.turn.actionsLeft > 0) {
         for (const c of battleTargets(s, f)) out.push({ type: 'battle', clearing: c, defender: 'eyrie' })
-        for (const m of legalMoves(s, f)) out.push({ type: 'march', moves: [m] })
+        for (const m of legalMoves(s, f)) out.push({ type: 'march', move: m })
         if (!s.turn.recruited && marquise.recruiterClearings(s).length > 0 && s.marquise.warriors > 0) {
           const recruiters = marquise.recruiterClearings(s)
           out.push(s.marquise.warriors >= recruiters.length ? { type: 'recruit' } : { type: 'recruit', clearings: recruiters.slice(0, s.marquise.warriors) })

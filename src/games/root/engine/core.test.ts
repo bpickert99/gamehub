@@ -50,14 +50,14 @@ describe('Move (4.2)', () => {
     clear(s, 'G')
     s.clearings.G.warriors = { marquise: 1, eyrie: 3 }
     // G is Eyrie-ruled and H is empty: no rule on either end.
-    expect(() => act(s, 'marquise', { type: 'march', moves: [{ from: 'G', to: 'H', count: 1 }] })).toThrow(/rule/)
-    s = act(s, 'marquise', { type: 'march', moves: [{ from: 'B', to: 'F', count: 1 }] })
+    expect(() => act(s, 'marquise', { type: 'march', move: { from: 'G', to: 'H', count: 1 } })).toThrow(/rule/)
+    s = act(s, 'marquise', { type: 'march', move: { from: 'B', to: 'F', count: 1 } })
     expect(s.clearings.F.warriors.marquise).toBe(2)
   })
 
   it('only follows paths to adjacent clearings', () => {
     const s = at(setUpGame(), 'marquise', 'daylight')
-    expect(() => act(s, 'marquise', { type: 'march', moves: [{ from: 'A', to: 'L', count: 1 }] })).toThrow(/adjacent/)
+    expect(() => act(s, 'marquise', { type: 'march', move: { from: 'A', to: 'L', count: 1 } })).toThrow(/adjacent/)
   })
 })
 

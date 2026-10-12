@@ -12,11 +12,14 @@ export const WORLD_W = BOARD.width * S // ≈ 91
 export const WORLD_H = BOARD.height * S // ≈ 78
 export const CLEARING_RADIUS = 5.6
 const PATH_HALF = 1.15
-const RIVER_HALF = 1.7
+const RIVER_HALF = 0.8 // a stream about a warrior wide, as in the app
 export const WATER_LEVEL = -0.45
 // Every building slot stands on a dry bank this wide, even where the river runs through its clearing.
 const SLOT_BANK = 1.8
-const MARGIN = 40 // forest beyond the board, so its edges are never seen
+const MARGIN = 20 // forest beyond the board, fading into the mist ring
+// The mist is clear this far past the board's edge, and thickens until it is opaque at MIST_SOLID.
+const MIST_CLEAR = 7
+const MIST_SOLID = 15
 
 // Clearing coordinates were measured on the board including its score track (2391 px tall).
 export function anchorFraction(c: ClearingId): { x: number; y: number } {
@@ -132,20 +135,16 @@ function lakeEdge(p: V2): number {
 const pondDepth = (p: V2) => Math.max(0, ...PONDS_W.map((o) => 1 - Math.hypot(p.x - o.c.x, p.z - o.c.z) / o.r))
 
 // Height of the ground: gentle rolls in the woods, flat clearings and roads, a carved river and
-// lake, and hills rising beyond the board.
+// lake.
 export function groundHeight(x: number, z: number): number {
   const p = { x, z }
-  const outX = Math.max(0, Math.abs(x) - WORLD_W / 2)
-  const outZ = Math.max(0, Math.abs(z) - WORLD_H / 2)
-  const out = Math.hypot(outX, outZ)
   let h = (fbm(x * 0.06, z * 0.06) - 0.5) * 1.6
-  h += out * 0.3 + fbm(x * 0.025 + 7, z * 0.025) * out * 0.25
   const flat = Math.max(smooth(CLEARING_RADIUS + 4, CLEARING_RADIUS, nearestClearing(p).d), smooth(PATH_HALF + 2, PATH_HALF, pathDist(p)))
   h = h * (1 - flat) + 0.05 * flat
   // Only the river, lake and pond go below the water.
   h = Math.max(h, WATER_LEVEL + 0.25)
-  const river = smooth(RIVER_HALF + 1.4, RIVER_HALF - 0.4, riverDist(p))
-  h = h * (1 - river) - 1.1 * river
+  const river = smooth(RIVER_HALF + 0.8, RIVER_HALF - 0.3, riverDist(p))
+  h = h * (1 - river) - 0.9 * river
   const lake = lakeEdge(p)
   if (lake > -1) h = h * (1 - smooth(0, 3, lake)) - 1.4 * smooth(0, 3, lake)
   const pond = pondDepth(p)
@@ -154,7 +153,7 @@ export function groundHeight(x: number, z: number): number {
   return h * (1 - bank) + 0.05 * bank
 }
 
-const isWater = (p: V2) => slotDist(p) > SLOT_BANK && (riverDist(p) < RIVER_HALF + 0.6 || lakeEdge(p) > -0.5 || pondDepth(p) > 0)
+const isWater = (p: V2) => slotDist(p) > SLOT_BANK && (riverDist(p) < RIVER_HALF + 0.35 || lakeEdge(p) > -0.5 || pondDepth(p) > 0)
 
 // ---------- ground texture: painted like the board ----------
 
@@ -233,7 +232,7 @@ function paintGround(): THREE.CanvasTexture {
   }
   // Muddy banks under the water.
   g.strokeStyle = '#8e8a63'
-  g.lineWidth = (RIVER_HALF * 2 + 1.6) * k
+  g.lineWidth = (RIVER_HALF * 2 + 0.7) * k
   g.lineJoin = 'round'
   g.beginPath()
   RIVER_PTS.forEach((p, i) => (i ? g.lineTo(X(p.x), Z(p.z)) : g.moveTo(X(p.x), Z(p.z))))
@@ -259,7 +258,7 @@ function paintGround(): THREE.CanvasTexture {
 function buildTerrain(): THREE.Mesh {
   const w = WORLD_W + MARGIN * 2
   const h = WORLD_H + MARGIN * 2
-  const geo = new THREE.PlaneGeometry(w, h, Math.round(w * 2.2), Math.round(h * 2.2))
+  const geo = new THREE.PlaneGeometry(w, h, Math.round(w * 1.8), Math.round(h * 1.8))
   geo.rotateX(-Math.PI / 2)
   const pos = geo.attributes.position
   const uv = geo.attributes.uv
@@ -295,18 +294,44 @@ function buildTerrain(): THREE.Mesh {
   return mesh
 }
 
-// Beyond the modelled forest, a plain of distant woods that fades into the fog, so no view ever
-// finds the end of the world.
-function buildSkirt(): THREE.Mesh {
-  const rect = (w: number, h: number) => [new THREE.Vector2(-w / 2, -h / 2), new THREE.Vector2(w / 2, -h / 2), new THREE.Vector2(w / 2, h / 2), new THREE.Vector2(-w / 2, h / 2)]
-  const shape = new THREE.Shape(rect(1000, 1000))
-  // A hole a little smaller than the modelled terrain, which rises above the skirt at its edge.
-  shape.holes.push(new THREE.Path(rect(WORLD_W + MARGIN * 2 - 4, WORLD_H + MARGIN * 2 - 4).reverse()))
-  const geo = new THREE.ShapeGeometry(shape)
+// A ring of mist over the woods beyond the board: clear over the board, thickening past its edges
+// until nothing beyond can be seen, so the modelled forest only needs a narrow margin.
+function buildMist(): THREE.Mesh {
+  const size = 600
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 1024
+  const g = canvas.getContext('2d')!
+  const k = canvas.width / size
+  g.fillStyle = MIST
+  g.fillRect(0, 0, canvas.width, canvas.height)
+  // Punch a soft-edged hole over the board, layer by layer from the outside in.
+  g.globalCompositeOperation = 'destination-out'
+  const clear = MIST_CLEAR
+  const steps = 24
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1)
+    const grow = clear + (MIST_SOLID - clear) * (1 - t)
+    g.globalAlpha = 1 / steps + t * 0.08
+    const w = (WORLD_W + grow * 2) * k
+    const h = (WORLD_H + grow * 2) * k
+    g.beginPath()
+    g.roundRect((canvas.width - w) / 2, (canvas.height - h) / 2, w, h, grow * k)
+    g.fill()
+  }
+  g.globalAlpha = 1
+  const w = (WORLD_W + clear * 2) * k
+  const h = (WORLD_H + clear * 2) * k
+  g.beginPath()
+  g.roundRect((canvas.width - w) / 2, (canvas.height - h) / 2, w, h, clear * k)
+  g.fill()
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  const geo = new THREE.PlaneGeometry(size, size)
   geo.rotateX(-Math.PI / 2)
-  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: PINE_GREENS[2] }))
-  // Just below the rim of the hills the terrain rises to at its edge.
-  mesh.position.y = MARGIN * 0.3 - 1
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }))
+  // Above the tallest tree, so the woods sink into it rather than poking through.
+  mesh.position.y = 7
+  mesh.renderOrder = 1
   return mesh
 }
 
@@ -409,6 +434,9 @@ const AUTUMN: Record<ClearingSuit, string[]> = {
 }
 const PINE_GREENS = ['#2f4a35', '#365239', '#2a4230', '#3d5a3c', '#33503a']
 
+// Trees stand about a warrior and a half tall, as in the app, so the pieces read clearly among them.
+const TREE_SIZE = 0.62
+
 // How far beyond the board's edge trees keep their ink outlines.
 const INK_REACH = 6
 
@@ -416,16 +444,20 @@ type Tree = { x: number; z: number; s: number; rot: number; color: string; autum
 
 function placeTrees(): Tree[] {
   const trees: Tree[] = []
-  const step = 1.75
+  // Sparse enough to see warriors moving through the woods, and to keep the frame rate up.
+  const step = 1.9
   for (let gx = -WORLD_W / 2 - MARGIN + 2; gx < WORLD_W / 2 + MARGIN - 2; gx += step) {
     for (let gz = -WORLD_H / 2 - MARGIN + 2; gz < WORLD_H / 2 + MARGIN - 2; gz += step) {
       const x = gx + (hash(gx, gz) - 0.5) * step * 0.9
       const z = gz + (hash(gz, gx) - 0.5) * step * 0.9
       const p = { x, z }
+      // Past the board's edge the woods thin out into the mist, ending where it turns opaque.
+      const out = Math.max(Math.abs(x) - WORLD_W / 2, Math.abs(z) - WORLD_H / 2)
+      if (out > MIST_CLEAR && hash(x * 1.3, z * 2.1) < (out - MIST_CLEAR) / (MIST_SOLID - MIST_CLEAR)) continue
       const near = nearestClearing(p)
-      if (near.d < CLEARING_RADIUS + 0.9) continue
-      if (pathDist(p) < PATH_HALF + 0.8) continue
-      if (isWater(p) || riverDist(p) < RIVER_HALF + 1.3) continue
+      if (near.d < CLEARING_RADIUS + 0.6) continue
+      if (pathDist(p) < PATH_HALF + 0.5) continue
+      if (isWater(p) || riverDist(p) < RIVER_HALF + 1) continue
       if (ROCKS_W.some((r) => Math.hypot(x - r.c.x, z - r.c.z) < r.size + 0.8)) continue
       if (Math.hypot(x - MARKET_W.x, z - MARKET_W.z) < 6) continue
       const roll = hash(x * 3.1, z * 1.7)
@@ -434,7 +466,7 @@ function placeTrees(): Tree[] {
       const autumnWild = roll > 0.95
       const autumn = autumnNear || autumnWild
       const palette = autumnNear ? AUTUMN[near.suit] : autumnWild ? AUTUMN[(['fox', 'mouse', 'rabbit'] as ClearingSuit[])[Math.floor(hash(z, x) * 3)]] : PINE_GREENS
-      trees.push({ x, z, s: 0.85 + hash(x, z * 2) * 0.55, rot: hash(z, x * 2) * Math.PI * 2, color: palette[Math.floor(hash(x * 7, z * 5) * palette.length)], autumn })
+      trees.push({ x, z, s: (0.85 + hash(x, z * 2) * 0.55) * TREE_SIZE, rot: hash(z, x * 2) * Math.PI * 2, color: palette[Math.floor(hash(x * 7, z * 5) * palette.length)], autumn })
     }
   }
   return trees
@@ -461,7 +493,7 @@ function treeMeshes(trees: Tree[], time: { value: number }): THREE.Object3D[] {
       body.setColorAt(i, col.set(t.color))
     })
     inked.forEach((t, i) => ink.setMatrixAt(i, matrix(t)))
-    body.castShadow = true
+    // Trees take the sun's shadows but don't cast them: drawing thousands into the shadow map is costly.
     body.receiveShadow = true
     out.push(body, ink)
   }
@@ -494,49 +526,75 @@ function rocks(): THREE.Object3D {
   return group
 }
 
+// Where a road crosses the stream out in the woods, a plank bridge along the road, long enough to
+// span the water at the angle the road meets it. (Inside clearings the stream is simply forded.)
+type Bridge = { x: number; z: number; dir: V2; span: number }
+const BRIDGES: Bridge[] = PATH_SEGS.flatMap(([a, b]) => {
+  const len = Math.hypot(b.x - a.x, b.z - a.z)
+  const dir = { x: (b.x - a.x) / len, z: (b.z - a.z) / len }
+  const at = (s: number) => ({ x: a.x + dir.x * s, z: a.z + dir.z * s })
+  const inClearing = (p: V2) => nearestClearing(p).d < CLEARING_RADIUS + 0.5
+  // The point of the road nearest the stream's middle, outside the clearings.
+  let best: { s: number; d: number } | null = null
+  for (let s = 0; s < len; s += 0.1) {
+    const d = riverDist(at(s))
+    if (d < RIVER_HALF && !inClearing(at(s)) && (!best || d < best.d)) best = { s, d }
+  }
+  if (!best) return []
+  const p = at(best.s)
+  const { along } = nearestOnPolyline(p, RIVER_PTS)
+  const sin = Math.abs(dir.x * along.z - dir.z * along.x) / Math.hypot(along.x, along.z)
+  return [{ x: p.x, z: p.z, dir, span: Math.min(7, (2 * (RIVER_HALF + 0.8)) / Math.max(sin, 0.35)) }]
+})
+
+// Height of a bridge's planks at its middle.
+export const BRIDGE_DECK = 0.47
+
+// The deck height at a distance `u` (-1…1 along its span) from a bridge's middle.
+const deck = (u: number) => 0.12 + Math.cos(u * Math.PI * 0.5) * (BRIDGE_DECK - 0.12)
+
 function bridges(): THREE.Object3D {
   const group = new THREE.Group()
   const plank = new THREE.MeshLambertMaterial({ color: '#7a5434', flatShading: true })
-  const inClearing = (p: V2) => nearestClearing(p).d < CLEARING_RADIUS + 0.5
-  // A plank bridge centred on `p`, its length along `dir`.
-  const lay = (p: V2, dir: V2) => {
+  for (const b of BRIDGES) {
     const bridge = new THREE.Group()
-    for (let i = -5; i <= 5; i++) {
+    const n = Math.ceil(b.span / 0.46)
+    for (let i = 0; i < n; i++) {
+      const z = (i - (n - 1) / 2) * 0.46
       const m = new THREE.Mesh(new THREE.BoxGeometry(PATH_HALF * 2.2, 0.12, 0.42), plank)
-      m.position.set(0, 0.12 + Math.cos((i / 5) * Math.PI * 0.5) * (BRIDGE_DECK - 0.12), i * 0.46)
+      m.position.set(0, deck(z / (b.span / 2)), z)
       m.castShadow = true
       bridge.add(m)
     }
     for (const side of [-1, 1]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 5.2), plank)
-      rail.position.set(side * PATH_HALF * 1.1, 0.75, 0)
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, b.span), plank)
+      rail.position.set(side * PATH_HALF * 1.1, BRIDGE_DECK + 0.3, 0)
       bridge.add(rail)
+      for (const end of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.7, 0.14), plank)
+        post.position.set(side * PATH_HALF * 1.1, 0.35, (end * b.span) / 2)
+        bridge.add(post)
+      }
     }
-    bridge.position.set(p.x, 0, p.z)
-    bridge.rotation.y = Math.atan2(dir.x, dir.z)
+    bridge.position.set(b.x, 0, b.z)
+    bridge.rotation.y = Math.atan2(b.dir.x, b.dir.z)
     group.add(bridge)
-  }
-  // Where a road crosses the river out in the woods, a bridge along the road.
-  for (const [a, b] of PATH_SEGS) {
-    const len = Math.hypot(b.x - a.x, b.z - a.z)
-    for (let s = 0; s < len; s += 0.25) {
-      const p = { x: a.x + ((b.x - a.x) * s) / len, z: a.z + ((b.z - a.z) * s) / len }
-      if (riverDist(p) > 0.3 || inClearing(p)) continue
-      lay(p, { x: b.x - a.x, z: b.z - a.z })
-      break
-    }
-  }
-  // Where the river runs through the middle of a clearing, one footbridge across it joins the two banks.
-  for (const c of CLEARING_LIST) {
-    if (riverDist(c.p) > RIVER_HALF) continue
-    const { point, along } = nearestOnPolyline(c.p, RIVER_PTS)
-    lay(point, { x: -along.z, z: along.x })
   }
   return group
 }
 
-// Height of a bridge's planks at its middle.
-export const BRIDGE_DECK = 0.47
+// Where a walking warrior's feet are: on the ground, on a bridge's deck, or wading the stream.
+export function walkHeight(x: number, z: number): number {
+  if (isDry(x, z)) return groundHeight(x, z)
+  for (const b of BRIDGES) {
+    const dx = x - b.x
+    const dz = z - b.z
+    const along = dx * b.dir.x + dz * b.dir.z
+    const across = Math.abs(dx * b.dir.z - dz * b.dir.x)
+    if (Math.abs(along) <= b.span / 2 && across <= PATH_HALF * 1.2) return deck(along / (b.span / 2))
+  }
+  return WATER_LEVEL - 0.1
+}
 
 // Ground pieces can stand on: not in the river, lake or a pond.
 export function isDry(x: number, z: number): boolean {
@@ -545,7 +603,7 @@ export function isDry(x: number, z: number): boolean {
 
 // Ground clear of water and roads, for a clearing's suit banner.
 export function isOpenGround(x: number, z: number): boolean {
-  return isDry(x, z) && pathDist({ x, z }) > PATH_HALF + 1 && riverDist({ x, z }) > RIVER_HALF + 3
+  return isDry(x, z) && pathDist({ x, z }) > PATH_HALF + 1 && riverDist({ x, z }) > RIVER_HALF + 1.5
 }
 
 export function marketPosition(): THREE.Vector3 {
@@ -590,12 +648,12 @@ function leaves(trees: Tree[]) {
 
 // ---------- the whole woodland ----------
 
-export const SKY = '#b9b69a'
+export const MIST = '#d4d3c3'
 
 export function buildWorld(scene: THREE.Scene): { update: (t: number, dt: number) => void } {
   const time = { value: 0 }
   scene.add(buildTerrain())
-  scene.add(buildSkirt())
+  scene.add(buildMist())
   scene.add(buildWater(time))
   const trees = placeTrees()
   for (const m of treeMeshes(trees, time)) scene.add(m)

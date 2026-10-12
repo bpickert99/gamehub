@@ -1,7 +1,7 @@
 import { assetUrl } from '../../../assetUrl'
 import { BASE_DECK } from '../data/baseDeck'
 import { EYRIE, type EyrieLeader } from '../data/factions'
-import type { ClearingSuit } from '../data/types'
+import type { CardSuit } from '../data/types'
 import type { CardId, Faction, PieceKind } from '../engine/types'
 
 export const cardImage = (id: CardId) => assetUrl(`/root/cards/${BASE_DECK[id].art}.webp`)
@@ -14,4 +14,4 @@ export const pieceImage = (kind: PieceKind | 'ruin' | string) => assetUrl(`/root
 export const factionIcon = (f: Faction) => assetUrl(`/root/pieces/${f}.png`)
 export const factionPortrait = (f: Faction) => assetUrl(`/root/factions/${f}.webp`)
 export const vpMarker = (f: Faction) => assetUrl(`/root/pieces/vp-${f}.png`)
-export const suitIcon = (s: ClearingSuit) => assetUrl(`/root/pieces/suit-${s}.png`)
+export const suitIcon = (s: CardSuit) => assetUrl(`/root/pieces/suit-${s}.png`)

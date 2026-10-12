@@ -59,7 +59,7 @@ const woodMaterial = (color: string) =>
 
 // ---------- meeples (traced from photos of the physical warriors) ----------
 
-// Each meeple is scaled so it stands 1 world unit tall.
+// Each meeple is modelled 1 unit tall, then scaled to WARRIOR_HEIGHT.
 const MEEPLE_DEPTH = 0.3
 const BEVEL = 0.03
 const meepleScale = (f: Faction) => 1 / MEEPLE_ART[f].box.h
@@ -96,10 +96,17 @@ function faceTexture(f: Faction): THREE.CanvasTexture {
   })
 }
 
+// How tall a warrior stands in the woodland, in world units: big enough to read at a glance, as in
+// the app (a clearing is about seven warriors across).
+export const WARRIOR_HEIGHT = 1.6
+
 export function meeple(f: Faction): THREE.Group {
   const { box } = MEEPLE_ART[f]
   const k = meepleScale(f)
+  const piece = new THREE.Group()
   const group = new THREE.Group()
+  group.scale.setScalar(WARRIOR_HEIGHT)
+  piece.add(group)
   const body = new THREE.Mesh(cached(`meeple:${f}`, () => extrude(silhouette(f), MEEPLE_DEPTH)), woodMaterial(FACTION_COLOR[f]))
   body.castShadow = true
   group.add(body)
@@ -109,7 +116,7 @@ export function meeple(f: Faction): THREE.Group {
   )
   face.position.set(0, (box.h * k) / 2, MEEPLE_DEPTH / 2 + BEVEL + 0.003)
   group.add(face)
-  return group
+  return piece
 }
 
 // ---------- tiles: buildings, ruins, items ----------
@@ -272,8 +279,9 @@ export function suitBanner(suit: ClearingSuit, ruler: Faction | null, icon: stri
     g.restore()
     withImage(icon, (img) => g.drawImage(img, 44, 42, 72, 72), done)
   })
-  const s = new THREE.Sprite(cached(`banner-mat:${key}`, () => new THREE.SpriteMaterial({ map })))
-  s.scale.set(0.95, 1.37, 1)
+  // Drawn in front of everything, so a clearing's suit and ruler can always be read.
+  const s = new THREE.Sprite(cached(`banner-mat:${key}`, () => new THREE.SpriteMaterial({ map, depthTest: false })))
+  s.renderOrder = 9
   s.center.set(0.5, 0)
   return s
 }
@@ -283,10 +291,10 @@ export function suitBanner(suit: ClearingSuit, ruler: Faction | null, icon: stri
 export function ringTexture(kind: 'on' | 'selected'): THREE.CanvasTexture {
   return canvasTexture(`ring:${kind}`, 256, 256, (g, done) => {
     g.beginPath()
-    g.arc(128, 128, 112, 0, Math.PI * 2)
-    g.fillStyle = kind === 'on' ? 'rgba(255,250,235,0.16)' : 'rgba(255,210,87,0.22)'
+    g.arc(128, 128, 110, 0, Math.PI * 2)
+    g.fillStyle = kind === 'on' ? 'rgba(255,250,235,0.2)' : 'rgba(255,210,87,0.26)'
     g.fill()
-    g.lineWidth = 12
+    g.lineWidth = 16
     g.strokeStyle = kind === 'on' ? 'rgba(255,250,235,0.95)' : '#ffd257'
     if (kind === 'on') g.setLineDash([30, 18])
     g.stroke()

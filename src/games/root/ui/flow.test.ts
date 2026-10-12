@@ -51,14 +51,17 @@ describe('Map click flow', () => {
     expect(clicks(s, verb('battle'), ['L'])).toEqual({ type: 'battle', clearing: 'L', defender: 'eyrie' })
   })
 
-  it('marches with origin, destination, and a count for each of up to two moves', () => {
-    const s = at(setUpGame(), 'marquise', 'daylight')
+  it('marches one move at a time: origin, destination and count, then the second move', () => {
+    let s = at(setUpGame(), 'marquise', 'daylight')
     s.clearings.B.warriors.marquise = 3
     s.marquise.warriors -= 2
-    const firstOnly = clicks(s, verb('march'), ['B', 'F'], 2) as Mode
-    expect(firstOnly).toMatchObject({ kind: 'verb', verb: 'march', first: { from: 'B', to: 'F', count: 2 } })
-    expect(highlighted(s, opts(s), firstOnly)).toContain('F')
-    expect(clicks(s, firstOnly, ['F', 'H'], 1)).toEqual({ type: 'march', moves: [{ from: 'B', to: 'F', count: 2 }, { from: 'F', to: 'H', count: 1 }] })
+    const first = clicks(s, verb('march'), ['B', 'F'], 2)
+    expect(first).toEqual({ type: 'march', move: { from: 'B', to: 'F', count: 2 } })
+    // The first move goes to the table at once; the second is a prompt answered the same way.
+    s = applyAction(s, 'marquise', first as Action)
+    const second: Mode = { kind: 'prompt-move', from: null }
+    expect(highlighted(s, opts(s), second)).toContain('F')
+    expect(clicks(s, second, ['F', 'H'], 1)).toEqual({ type: 'march-move', move: { from: 'F', to: 'H', count: 1 } })
   })
 
   it('clicking the origin again cancels it', () => {

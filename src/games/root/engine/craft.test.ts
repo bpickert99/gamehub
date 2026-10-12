@@ -55,7 +55,8 @@ describe('Crafting (4.1)', () => {
   it('closes crafting once the Marquise takes an action (6.5)', () => {
     let s = marquiseDaylight()
     giveHand(s, 'marquise', [cardId('Anvil')])
-    s = act(s, 'marquise', { type: 'march', moves: [{ from: 'B', to: 'F', count: 1 }] })
+    s = act(s, 'marquise', { type: 'march', move: { from: 'B', to: 'F', count: 1 } })
+    s = act(s, 'marquise', { type: 'skip' }) // no second move
     expect(() => act(s, 'marquise', { type: 'craft', card: cardId('Anvil') })).toThrow(/start of Daylight/)
   })
 

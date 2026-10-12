@@ -133,6 +133,10 @@ function answerPrompt(s: GameState, f: Faction, p: Prompt, a: Action): void {
       if (a.type === 'skip') return
       if (a.type !== 'field-hospitals') return wrong()
       return marquise.fieldHospitals(s, a.card, p.clearing, p.count)
+    case 'second-move':
+      if (a.type === 'skip') return
+      if (a.type !== 'march-move') return wrong()
+      return moveWarriors(s, f, a.move.from, a.move.to, a.move.count)
     case 'discard':
       if (a.type !== 'discard') return wrong()
       check(a.cards.length === p.count, `Discard exactly ${p.count} card${p.count === 1 ? '' : 's'} (hand limit ${HAND_LIMIT}).`)
@@ -171,7 +175,7 @@ function turnAction(s: GameState, f: Faction, a: Action): void {
   if (f === 'marquise') {
     switch (a.type) {
       case 'battle': return marquise.battle(s, a.clearing, a.defender)
-      case 'march': return marquise.march(s, a.moves)
+      case 'march': return marquise.march(s, a.move)
       case 'recruit': return marquise.recruit(s, a.clearings)
       case 'build': return marquise.build(s, a.clearing, a.building, a.wood)
       case 'overwork': return marquise.overwork(s, a.card, a.clearing)

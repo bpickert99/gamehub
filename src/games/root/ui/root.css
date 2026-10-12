@@ -82,6 +82,7 @@
   background: var(--parchment); border: 3px solid var(--wood); border-radius: 10px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
 }
+.rb-popover-anchor.below .rb-popover { bottom: auto; top: 18px; }
 
 .rb-zoom { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 6px; }
 .rb-zoom button, .rg-icon {
@@ -92,7 +93,7 @@
 }
 
 /* ---------- shared bits ---------- */
-.rg-screen button:not(.rb-hit):not(.rg-hand-card):not(.rg-decree-card):not(.rg-player):not(.rg-me):not(.rg-dialog-card):not(.rg-icon):not(.rg-verb):not(.rg-column-head):not(.rg-go):not(.rg-plain) {
+.rg-screen button:not(.rb-hit):not(.rg-hand-face):not(.rg-hand-view):not(.rg-suit):not(.rg-player):not(.rg-me):not(.rg-dialog-card):not(.rg-icon):not(.rg-verb):not(.rg-column-head):not(.rg-go):not(.rg-plain) {
   background: var(--wood); color: var(--parchment); border: 2px solid #3a2414; border-radius: 8px;
   padding: 8px 14px; font-size: 1rem; cursor: pointer;
 }
@@ -216,15 +217,14 @@
 .rg-column-head img { width: 30px; height: 30px; border-radius: 6px; }
 .rg-column.droppable .rg-column-head { background: #ffd257; cursor: pointer; animation: rg-ready 1.4s infinite; }
 .rg-column.current .rg-column-head { box-shadow: 0 0 0 3px #ffd257; }
-.rg-column-cards { display: flex; flex-direction: column; align-items: center; max-height: 84px; overflow: clip; }
-.rg-column-cards:empty { display: none; }
-.rg-decree-card { width: 56px; margin-bottom: -58px; padding: 0; border: none; background: none; cursor: pointer; }
-.rg-decree-card:disabled { cursor: default; }
-.rg-decree-card img { width: 100%; border-radius: 4px; border: 2px solid #f6e7c4; display: block; }
-.rg-decree-card.done { opacity: 0.35; }
-.rg-decree-card.active img { border-color: #ffd257; box-shadow: 0 0 0 3px #ffd257; }
-.rg-decree-card.staged { opacity: 0.75; }
-.rg-decree-card.staged img { border-style: dashed; }
+.rg-suits { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; min-height: 26px; max-width: 66px; }
+.rg-suit { width: 24px; height: 24px; padding: 0; border: none; border-radius: 50%; background: none; cursor: pointer; }
+.rg-suit:disabled { cursor: default; }
+.rg-suit img { width: 100%; height: 100%; display: block; border-radius: 50%; box-shadow: 0 0 0 2px #f6e7c4; }
+.rg-suit.done { opacity: 0.3; }
+.rg-suit.active img { box-shadow: 0 0 0 3px #ffd257; }
+.rg-suit.staged { opacity: 0.7; }
+.rg-suit.staged img { box-shadow: 0 0 0 2px #f6e7c4, 0 0 0 4px rgba(255, 210, 87, 0.8); }
 
 /* ---------- dialogs and drawers ---------- */
 .rg-modal { position: absolute; inset: 0; background: rgba(20, 14, 8, 0.55); display: flex; align-items: center; justify-content: center; z-index: 20; }
@@ -268,8 +268,6 @@
   .rg-verb img { width: 26px; height: 26px; }
   .rg-leader { display: none; }
   .rg-column { width: 50px; }
-  .rg-decree-card { width: 44px; margin-bottom: -46px; }
-  .rg-column-cards { height: 64px; }
   .rg-sun { width: 34px; height: 34px; }
   .rg-go { width: 50px; height: 50px; font-size: 1.6rem; }
   .rb-zoom { top: 130px; transform: none; }
@@ -295,13 +293,21 @@
 .rg-verb { font-size: 0.9rem; font-weight: 700; }
 .rg-column-head { font-size: 0.85rem; font-weight: 700; }
 
+/* Build choices: a picture of each building, its cost and its points. */
+.rg-builds { display: flex; gap: 8px; }
+.rg-screen .rg-build { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 10px; min-width: 104px; }
+.rg-build img { width: 44px; height: 44px; border-radius: 8px; }
+.rg-build strong { font-size: 1rem; }
+.rg-build small { font-size: 0.8rem; opacity: 0.9; white-space: nowrap; }
+
 /* Card viewer */
-.rg-viewer {
-  display: flex; gap: 22px; align-items: center; padding: 20px;
-  background: var(--parchment); border: 4px solid var(--wood); border-radius: 14px; box-shadow: 0 16px 50px rgba(0, 0, 0, 0.7);
+.rg-viewer { display: flex; gap: 22px; align-items: center; }
+/* About 480px tall on screen, whatever the text size: large enough to read, small enough to stay sharp. */
+.rg-viewer-card { height: calc(min(60vh, 480px) / var(--hud, 1.2)); border-radius: 14px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6); }
+.rg-viewer-side {
+  display: flex; flex-direction: column; gap: 10px; min-width: 200px; padding: 16px 18px;
+  background: var(--parchment); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
-.rg-viewer-card { height: min(74vh, 620px); border-radius: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
-.rg-viewer-side { display: flex; flex-direction: column; gap: 10px; min-width: 200px; }
 .rg-viewer-side h3 { margin: 0 0 6px; font-family: 'IM Fell English SC', Georgia, serif; font-size: 1.6rem; }
 .rg-dialog-card-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 
@@ -310,6 +316,7 @@
   position: absolute; z-index: 6; width: calc(30px * var(--hud, 1.2)); height: calc(30px * var(--hud, 1.2));
   border-radius: 50%; padding: 0; cursor: pointer; font: italic 700 calc(1.15rem * var(--hud, 1.2)) Georgia, serif; color: var(--parchment) !important; background: var(--wood);
   border: 2px solid var(--parchment); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -100%); /* centred just above the piece */
 }
 .rg-info { max-width: min(620px, 92vw); text-align: left; align-items: stretch; }
 .rg-info section { border-top: 1px solid var(--parchment-dark); padding-top: 8px; }

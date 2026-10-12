@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { act, at, cardId, clear, giveHand, rigDice, setUpGame } from './testHelpers'
 
 describe('Events for the table to animate', () => {
-  it('a march records its moves in order, and only this action\'s events', () => {
+  it('each move of a march is its own event, and only this action\'s events are kept', () => {
     let s = at(setUpGame(), 'marquise', 'daylight')
     s.events = [{ type: 'turn', faction: 'eyrie' }]
-    s = act(s, 'marquise', { type: 'march', moves: [{ from: 'B', to: 'F', count: 1 }, { from: 'F', to: 'H', count: 2 }] })
-    expect(s.events).toEqual([
-      { type: 'move', faction: 'marquise', from: 'B', to: 'F', count: 1 },
-      { type: 'move', faction: 'marquise', from: 'F', to: 'H', count: 2 },
-    ])
+    s = act(s, 'marquise', { type: 'march', move: { from: 'B', to: 'F', count: 1 } })
+    expect(s.events).toEqual([{ type: 'move', faction: 'marquise', from: 'B', to: 'F', count: 1 }])
+    s = act(s, 'marquise', { type: 'march-move', move: { from: 'F', to: 'H', count: 2 } })
+    expect(s.events).toEqual([{ type: 'move', faction: 'marquise', from: 'F', to: 'H', count: 2 }])
   })
 
   it('a battle records its start, the dice, and the removals', () => {
