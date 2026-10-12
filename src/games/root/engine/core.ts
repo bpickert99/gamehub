@@ -1,7 +1,7 @@
 import { BASE_DECK, type Card } from '../data/baseDeck'
 import { CLEARINGS, PATHS, type ClearingId } from '../data/autumnMap'
 import type { CardSuit, ClearingSuit } from '../data/types'
-import { RuleError, type CardId, type Faction, type GameState } from './types'
+import { RuleError, type CardId, type Faction, type GameEvent, type GameState } from './types'
 
 export const WIN_SCORE = 30
 export const HAND_LIMIT = 5
@@ -46,6 +46,10 @@ export function rollDie(s: GameState): number {
 }
 
 // ---------- log ----------
+
+export function emit(s: GameState, event: GameEvent): void {
+  s.events.push(event)
+}
 
 export function log(s: GameState, message: string): void {
   s.log.push(message)
@@ -108,6 +112,7 @@ export function inPlayArea(s: GameState, faction: Faction, name: string): CardId
 
 export function score(s: GameState, faction: Faction, points: number): void {
   if (points === 0 || s.winner) return
+  emit(s, { type: 'score', faction, points })
   // The score track starts at 0; losses stop there.
   s.score[faction] = Math.max(0, s.score[faction] + points)
   if (s.score[faction] >= WIN_SCORE) {
@@ -173,6 +178,7 @@ export function placeWarriors(s: GameState, faction: Faction, c: ClearingId, cou
   if (faction === 'marquise') s.marquise.warriors -= n
   else s.eyrie.warriors -= n
   s.clearings[c].warriors[faction] += n
+  if (n > 0) emit(s, { type: 'place', faction, clearing: c, count: n })
   return n
 }
 
@@ -184,6 +190,7 @@ export function moveWarriors(s: GameState, faction: Faction, from: ClearingId, t
   check(rules(s, faction, from) || rules(s, faction, to), 'You must rule the origin or destination clearing to move (4.2.1).')
   s.clearings[from].warriors[faction] -= count
   s.clearings[to].warriors[faction] += count
+  emit(s, { type: 'move', faction, from, to, count })
   log(s, `${FACTION_NAME[faction]} move ${count} warrior${count > 1 ? 's' : ''} from ${from} to ${to}.`)
 }
 

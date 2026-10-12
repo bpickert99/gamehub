@@ -124,6 +124,8 @@ export type GameState = {
   battle: Battle | null
   winner: Faction | null
   log: string[]
+  // What happened during the last action, in order, so every player's screen can animate it.
+  events: GameEvent[]
 }
 
 export type Move = { from: ClearingId; to: ClearingId; count: number }
@@ -161,5 +163,19 @@ export type Action =
   | { type: 'removals'; pieces: PieceKind[] }
   | { type: 'field-hospitals'; card: CardId }
   | { type: 'discard'; cards: CardId[] }
+
+// Things that happened, recorded by the engine for the table to animate.
+export type GameEvent =
+  | { type: 'turn'; faction: Faction }
+  | { type: 'move'; faction: Faction; from: ClearingId; to: ClearingId; count: number }
+  | { type: 'place'; faction: Faction; clearing: ClearingId; count: number }
+  | { type: 'remove'; faction: Faction; clearing: ClearingId; warriors: number; pieces: PieceKind[] }
+  | { type: 'build'; faction: Faction; clearing: ClearingId; kind: BuildingKind }
+  | { type: 'wood'; clearings: ClearingId[] }
+  | { type: 'battle'; attacker: Faction; defender: Faction; clearing: ClearingId }
+  | { type: 'ambush'; faction: Faction; clearing: ClearingId; foiled: boolean }
+  | { type: 'roll'; clearing: ClearingId; dice: [number, number]; high: number; low: number; hits: { attacker: number; defender: number } }
+  | { type: 'craft'; faction: Faction; card: CardId }
+  | { type: 'score'; faction: Faction; points: number }
 
 export class RuleError extends Error {}

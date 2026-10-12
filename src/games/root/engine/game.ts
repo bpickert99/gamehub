@@ -2,7 +2,7 @@ import { BASE_DECK, ITEM_SUPPLY } from '../data/baseDeck'
 import { CLEARINGS, type ClearingId } from '../data/autumnMap'
 import { EYRIE, MARQUISE } from '../data/factions'
 import {
-  CLEARING_IDS, FACTION_NAME, HAND_LIMIT, check, discardCard, draw, fail, inPlayArea, log, moveWarriors, shuffle,
+  CLEARING_IDS, FACTION_NAME, HAND_LIMIT, check, discardCard, draw, emit, fail, inPlayArea, log, moveWarriors, shuffle,
   takeFromHand,
 } from './core'
 import { battleStep, chooseRemovals, playAmbush, playFoil, resolveAmbush, startBattle, useBattleEffects } from './battle'
@@ -41,6 +41,7 @@ export function createGame(seed: number): GameState {
     battle: null,
     winner: null,
     log: [],
+    events: [],
   }
   // Random starting player and seating (5.1.1).
   s.seating = shuffle(s, s.seating)
@@ -60,6 +61,7 @@ export function actor(s: GameState): Faction | null {
 
 export function applyAction(state: GameState, faction: Faction, action: Action): GameState {
   const s = structuredClone(state)
+  s.events = []
   check(!s.winner, 'The game is over.')
   const prompt = s.pending[0]
   if (prompt) {
@@ -200,6 +202,7 @@ function startTurn(s: GameState, f: Faction): void {
   s.current = f
   s.turn = freshTurn()
   s.step = 'birdsong-start'
+  emit(s, { type: 'turn', faction: f })
   log(s, `— ${FACTION_NAME[f]}'s turn —`)
 }
 

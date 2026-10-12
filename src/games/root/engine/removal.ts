@@ -1,5 +1,5 @@
 import type { ClearingId } from '../data/autumnMap'
-import { FACTION_NAME, cardMatches, check, clearingSuit, log, score } from './core'
+import { FACTION_NAME, cardMatches, check, clearingSuit, emit, log, score } from './core'
 import type { Faction, GameState, PieceKind } from './types'
 
 export type RemovalPlan = { warriors: number; pieces: PieceKind[] }
@@ -62,6 +62,7 @@ export function removePieces(s: GameState, faction: Faction, c: ClearingId, plan
     }
   }
   if (plan.warriors + plan.pieces.length > 0) {
+    emit(s, { type: 'remove', faction, clearing: c, warriors: plan.warriors, pieces: plan.pieces })
     log(s, `${FACTION_NAME[faction]} lose ${describe(plan)} in ${c}.`)
   }
   return { faction, clearing: c, warriors: plan.warriors, buildingsAndTokens: plan.pieces.length, pieces: plan.pieces }

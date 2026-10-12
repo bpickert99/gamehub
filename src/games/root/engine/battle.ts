@@ -1,6 +1,6 @@
 import type { ClearingId } from '../data/autumnMap'
 import {
-  FACTION_NAME, card, cardMatches, check, clearingSuit, discardCard, hasPieces, inPlayArea, log, rollDie, score, takeFromHand,
+  FACTION_NAME, card, cardMatches, check, clearingSuit, discardCard, emit, hasPieces, inPlayArea, log, rollDie, score, takeFromHand,
 } from './core'
 import { afterRemoval, planFromChoice, planHits, removePieces, type RemovalPlan } from './removal'
 import type { CardId, Faction, GameState, PieceKind } from './types'
@@ -14,6 +14,7 @@ export function startBattle(s: GameState, attacker: Faction, c: ClearingId, defe
     attackerExtra: 0, defenderExtra: 0, attackerIgnoresRolled: false, defenderIgnoresRolled: false,
     brutalTactics: false, effectsAsked: [], chosen: {},
   }
+  emit(s, { type: 'battle', attacker, defender, clearing: c })
   log(s, `${FACTION_NAME[attacker]} attack ${FACTION_NAME[defender]} in ${c}.`)
 }
 
@@ -39,6 +40,10 @@ export function battleStep(s: GameState): void {
     b.high = Math.max(a, d)
     b.low = Math.min(a, d)
     b.step = 'effects'
+    // Rolled hits are limited by each side's warriors in the clearing (4.3.3.I).
+    const cs = s.clearings[b.clearing]
+    const hits = { attacker: Math.min(b.high, cs.warriors[b.attacker]), defender: Math.min(b.low, cs.warriors[b.defender]) }
+    emit(s, { type: 'roll', clearing: b.clearing, dice: [a, d], high: b.high, low: b.low, hits })
     log(s, `Dice: ${a} and ${d}. ${FACTION_NAME[b.attacker]} will deal ${b.high}, ${FACTION_NAME[b.defender]} ${b.low} (4.3.3).`)
     return
   }
@@ -107,6 +112,7 @@ export function playAmbush(s: GameState, f: Faction, id: CardId): void {
   check(card(id).kind === 'ambush' && cardMatches(id, clearingSuit(b.clearing)), 'That ambush card does not match this clearing (2.1.2).')
   takeFromHand(s, f, id)
   b.ambush = id
+  emit(s, { type: 'ambush', faction: f, clearing: b.clearing, foiled: false })
   log(s, `${FACTION_NAME[f]} play an ambush card!`)
   if (matchingAmbushes(s, b.attacker, b.clearing).length > 0) {
     s.pending.unshift({ kind: 'foil', faction: b.attacker })
@@ -122,6 +128,7 @@ export function playFoil(s: GameState, f: Faction, id: CardId): void {
   discardCard(s, id)
   discardCard(s, b.ambush!)
   b.ambush = undefined
+  emit(s, { type: 'ambush', faction: f, clearing: b.clearing, foiled: true })
   log(s, `${FACTION_NAME[f]} foil the ambush with their own ambush card.`)
 }
 

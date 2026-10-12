@@ -1,7 +1,7 @@
 import { CLEARINGS, DIAGONAL_CORNER, type ClearingId } from '../data/autumnMap'
 import { MARQUISE, type MarquiseBuilding } from '../data/factions'
 import {
-  CLEARING_IDS, card, cardMatches, check, clearingSuit, log, moveWarriors, neighbours, openSlots, placeWarriors, rules,
+  CLEARING_IDS, card, cardMatches, check, clearingSuit, emit, log, moveWarriors, neighbours, openSlots, placeWarriors, rules,
   score, spendFromHand,
 } from './core'
 import { startBattle } from './battle'
@@ -32,6 +32,7 @@ export function setupBuildings(s: GameState, placement: Record<MarquiseBuilding,
   }
   for (const kind of ['sawmill', 'workshop', 'recruiter'] as MarquiseBuilding[]) {
     s.clearings[placement[kind]].buildings.push({ faction: 'marquise', kind })
+    emit(s, { type: 'build', faction: 'marquise', clearing: placement[kind], kind })
     s.marquise.track[kind] -= 1
   }
   log(s, 'Marquise de Cat place a sawmill, workshop, and recruiter.')
@@ -48,7 +49,10 @@ export function placeWood(s: GameState, clearings: ClearingId[]): void {
     s.clearings[c].tokens.push({ faction: 'marquise', kind: 'wood' })
     s.marquise.wood -= 1
   }
-  if (clearings.length) log(s, `Marquise de Cat place ${clearings.length} wood.`)
+  if (clearings.length) {
+    emit(s, { type: 'wood', clearings })
+    log(s, `Marquise de Cat place ${clearings.length} wood.`)
+  }
 }
 
 // When wood runs short, the Marquise chooses which sawmills get wood (1.5.4).
@@ -155,6 +159,7 @@ export function build(s: GameState, c: ClearingId, kind: MarquiseBuilding, wood:
   }
   s.clearings[c].buildings.push({ faction: 'marquise', kind })
   s.marquise.track[kind] -= 1
+  emit(s, { type: 'build', faction: 'marquise', clearing: c, kind })
   log(s, `Marquise de Cat build a ${kind} in ${c} for ${price.cost} wood.`)
   score(s, 'marquise', price.vp)
 }

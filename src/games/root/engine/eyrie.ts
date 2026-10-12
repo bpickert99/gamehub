@@ -2,7 +2,7 @@ import { DIAGONAL_CORNER, type ClearingId } from '../data/autumnMap'
 import { EYRIE, type DecreeColumn, type EyrieLeader } from '../data/factions'
 import type { CardSuit } from '../data/types'
 import {
-  CLEARING_IDS, card, canMoveFrom, canPlaceIn, check, clearingSuit, discardCard, hasPieces, log, moveWarriors,
+  CLEARING_IDS, card, canMoveFrom, canPlaceIn, check, clearingSuit, discardCard, emit, hasPieces, log, moveWarriors,
   openSlots, opponent, placeWarriors, rules, score, takeFromHand,
 } from './core'
 import { startBattle } from './battle'
@@ -37,6 +37,7 @@ export function emptyDecree(): Record<DecreeColumn, DecreeEntry[]> {
 function placeRoost(s: GameState, c: ClearingId): void {
   s.clearings[c].buildings.push({ faction: 'eyrie', kind: 'roost' })
   s.eyrie.roostTrack -= 1
+  emit(s, { type: 'build', faction: 'eyrie', clearing: c, kind: 'roost' })
 }
 
 export function roostsOnMap(s: GameState): ClearingId[] {

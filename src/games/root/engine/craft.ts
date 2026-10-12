@@ -1,7 +1,7 @@
 import type { ClearingId } from '../data/autumnMap'
 import type { ClearingSuit, CostSuit } from '../data/types'
 import {
-  CLEARING_IDS, FACTION_NAME, card, check, clearingSuit, discardCard, draw, inPlayArea, log, opponent,
+  CLEARING_IDS, FACTION_NAME, card, check, clearingSuit, discardCard, draw, emit, inPlayArea, log, opponent,
   randomInt, rules, score, takeFromHand,
 } from './core'
 import { afterRemoval, otherPieces, removePieces, type Removed } from './removal'
@@ -66,6 +66,7 @@ export function craft(s: GameState, f: Faction, id: CardId): void {
 
   takeFromHand(s, f, id)
   for (const suit of SUITS) s.turn.craftingUsed[suit] += paid[suit]
+  emit(s, { type: 'craft', faction: f, card: id })
   log(s, `${FACTION_NAME[f]} craft ${c.name}.`)
 
   if (c.kind === 'item') {

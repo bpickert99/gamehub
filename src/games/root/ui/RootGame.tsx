@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ClearingId } from '../data/autumnMap'
 import { EYRIE, type DecreeColumn } from '../data/factions'
-import { card, FACTION_NAME, opponent } from '../engine/core'
+import { card, FACTION_NAME, moveWarriors, opponent } from '../engine/core'
 import { nextColumn, entryPossible } from '../engine/eyrie'
 import { actor, applyAction } from '../engine/game'
 import { legalActions } from '../engine/legal'
 import { marquiseDraws } from '../engine/marquise'
-import type { Action, CardId, Faction, GameState } from '../engine/types'
+import type { Action, CardId, Faction, GameEvent, GameState } from '../engine/types'
+import BattleCutaway, { type BattleView } from './BattleCutaway'
 import { parseState, sendAction, subscribeRootGame, type RootGameDoc } from '../sync'
 import { CARD_BACK, VIZIER_IMAGE, cardImage, factionIcon, factionPortrait, leaderImage, pieceImage } from './assets'
 import Board from './Board3D'
@@ -59,6 +60,28 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
   const mode = defaultMode(state, me, myMove, chosen)
   const highlight = myMove ? highlighted(state, options, mode) : []
 
+  // March preview: after choosing the first move, it plays out on the board before the second is chosen.
+  const first = mode.kind === 'verb' && mode.verb === 'march' ? mode.first : null
+  const shown = useMemo(() => {
+    if (!first) return state
+    const draft = structuredClone(state)
+    draft.events = []
+    moveWarriors(draft, 'marquise', first.from, first.to, first.count)
+    return draft
+  }, [state, first])
+  // When the real March arrives, its first move was already shown by the preview.
+  const preview = useRef<GameEvent | null>(null)
+  if (first) preview.current = shown.events[0]
+  const skipEvents = useMemo(() => {
+    const p = preview.current
+    const e = state.events[0]
+    const same = p && e && JSON.stringify(p) === JSON.stringify(e)
+    preview.current = null
+    return same ? 1 : 0
+  }, [state])
+
+  const feed = useEventFeed(state)
+
   async function act(action: Action) {
     setError(null)
     setBusy(true)
@@ -90,7 +113,8 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
   return (
     <div className={`rg-screen rg-${me} ${busy ? 'busy' : ''}`} style={{ ['--hud' as string]: settings.textSize }}>
       <Board
-        state={state}
+        state={shown}
+        skipEvents={first ? 0 : skipEvents}
         highlight={highlight}
         selected={selectedClearing(mode)}
         onClearing={onClearing}
@@ -132,6 +156,12 @@ function Table({ code, state, me }: { code: string; state: GameState; me: Factio
       <ActionBar state={state} me={me} myMove={myMove} mode={mode} options={options} onMode={(m) => setMode(m)} onAct={act} />
       </div>
 
+      {feed.battle && <BattleCutaway battle={feed.battle} />}
+      {feed.turn && <div className="rg-turn-banner" key={feed.turn.key}><img src={factionPortrait(feed.turn.faction)} alt="" />{feed.turn.faction === me ? 'Your turn' : `${FACTION_NAME[feed.turn.faction]}'s turn`}</div>}
+      {feed.craft && <div className="rg-crafted" key={feed.craft.key}><span>{FACTION_NAME[feed.craft.faction]} craft</span><img src={cardImage(feed.craft.card)} alt="" /></div>}
+      <div className="rg-toasts">
+        {feed.scores.map((t) => <div key={t.key} className={`rg-toast rg-toast-${t.faction}`}>{t.points > 0 ? '+' : ''}{t.points} VP · {FACTION_NAME[t.faction]}</div>)}
+      </div>
       {myMove && prompt && <PromptDialog state={state} options={options} onAct={act} onView={setViewing} />}
       {state.turn.peek && state.current === me && !prompt && <PeekDialog key={version} cards={state.turn.peek} them={them} />}
       {state.winner && (
@@ -615,4 +645,80 @@ function PeekDialog({ cards, them }: { cards: CardId[]; them: Faction }) {
       </div>
     </div>
   )
+}
+
+// ---------- what just happened: battle cutaway, turn banner, crafted cards, points ----------
+
+type Feed = {
+  battle: BattleView | null
+  turn: { faction: Faction; key: number } | null
+  craft: { faction: Faction; card: CardId; key: number } | null
+  scores: { faction: Faction; points: number; key: number }[]
+}
+
+function useEventFeed(state: GameState): Feed {
+  const [feed, setFeed] = useState<Feed>({ battle: null, turn: null, craft: null, scores: [] })
+  const prev = useRef<GameState | null>(null)
+  const key = useRef(0)
+
+  useEffect(() => {
+    const before = prev.current
+    prev.current = state
+    if (!before) return // first load: nothing has just happened
+    // Each timer only clears its own item, so they may outlive later updates.
+    const later = (ms: number, f: () => void) => window.setTimeout(f, ms)
+    setFeed((f) => {
+      const next = { ...f, scores: [...f.scores] }
+      for (const e of state.events) {
+        const k = ++key.current
+        switch (e.type) {
+          case 'turn':
+            next.turn = { faction: e.faction, key: k }
+            later(1800, () => setFeed((x) => (x.turn?.key === k ? { ...x, turn: null } : x)))
+            break
+          case 'craft':
+            next.craft = { faction: e.faction, card: e.card, key: k }
+            later(2600, () => setFeed((x) => (x.craft?.key === k ? { ...x, craft: null } : x)))
+            break
+          case 'score':
+            next.scores.push({ faction: e.faction, points: e.points, key: k })
+            later(2400, () => setFeed((x) => ({ ...x, scores: x.scores.filter((t) => t.key !== k) })))
+            break
+          case 'battle': {
+            const cs = before.clearings[e.clearing]
+            const side = (f: Faction) => ({
+              warriors: cs.warriors[f],
+              pieces: [...cs.buildings.filter((b) => b.faction === f).map((b) => b.kind), ...cs.tokens.filter((t) => t.faction === f).map((t) => t.kind)],
+            })
+            next.battle = {
+              attacker: e.attacker, defender: e.defender, clearing: e.clearing,
+              sides: { marquise: side('marquise'), eyrie: side('eyrie') },
+              roll: null, lost: { marquise: { warriors: 0, pieces: 0 }, eyrie: { warriors: 0, pieces: 0 } }, ambush: null,
+            }
+            break
+          }
+          case 'ambush':
+            if (next.battle) next.battle = { ...next.battle, ambush: e.foiled ? null : e.faction }
+            break
+          case 'roll':
+            if (next.battle) next.battle = { ...next.battle, roll: { dice: e.dice, hits: e.hits } }
+            break
+          case 'remove':
+            if (next.battle && next.battle.clearing === e.clearing) {
+              const lost = next.battle.lost[e.faction]
+              next.battle = { ...next.battle, lost: { ...next.battle.lost, [e.faction]: { warriors: lost.warriors + e.warriors, pieces: lost.pieces + e.pieces.length } } }
+            }
+            break
+        }
+      }
+      // The cutaway stays while the battle is unresolved, and lingers a moment after it ends.
+      if (next.battle && !state.battle) {
+        const shown = next.battle
+        later(5500, () => setFeed((x) => (x.battle === shown ? { ...x, battle: null } : x)))
+      }
+      return next
+    })
+  }, [state])
+
+  return feed
 }
